@@ -79,7 +79,7 @@ case "pulse":
     Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period), minB: minB, maxB: maxB, blink: blink)
 
 case "stop":
-    Session.killExisting()
+    Session.stopAndRestore()
 
 case "help", "-h", "--help":
     print(usage)

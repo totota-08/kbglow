@@ -4,9 +4,17 @@ import Foundation
 nonisolated(unsafe) var gStop: sig_atomic_t = 0
 
 private let pidPath = "/tmp/kbglow.pid"
+private let statePath = "/tmp/kbglow.state"
 
 /// A long-running lighting session (pulse). Ensures only one instance
 /// runs at a time, and restores the original backlight state on exit.
+///
+/// The pre-session state (brightness + auto-brightness) lives in a file, not
+/// just in memory: when a new pulse replaces a running one, the current
+/// reading is mid-blink with auto-brightness already disabled, so sampling it
+/// would "save" a broken state and restoring would wreck the user's settings.
+/// The file always holds the state from before the *first* session, survives
+/// takeovers and crashes, and is removed once it has been restored.
 final class Session {
     let backlight: Backlight
     private let savedBrightness: Float
@@ -24,8 +32,16 @@ final class Session {
         try? String(ProcessInfo.processInfo.processIdentifier).write(
             toFile: pidPath, atomically: true, encoding: .utf8)
 
-        savedBrightness = bl.brightness
-        savedAuto = bl.autoBrightnessEnabled
+        if let (b, auto) = Session.readState() {
+            // A previous session left its original state behind (it was
+            // replaced mid-handoff or crashed) — that is the true original.
+            savedBrightness = b
+            savedAuto = auto
+        } else {
+            savedBrightness = bl.brightness
+            savedAuto = bl.autoBrightnessEnabled
+            Session.writeState(brightness: savedBrightness, auto: savedAuto)
+        }
         bl.setAutoBrightness(false)
 
         for sig in [SIGINT, SIGTERM, SIGHUP] {
@@ -38,6 +54,7 @@ final class Session {
         finished = true
         backlight.brightness = savedBrightness
         backlight.setAutoBrightness(savedAuto)
+        try? FileManager.default.removeItem(atPath: statePath)
         if let pid = Session.readPid(), pid == ProcessInfo.processInfo.processIdentifier {
             try? FileManager.default.removeItem(atPath: pidPath)
         }
@@ -48,6 +65,18 @@ final class Session {
         return Int32(s.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    static func readState() -> (brightness: Float, auto: Bool)? {
+        guard let s = try? String(contentsOfFile: statePath, encoding: .utf8) else { return nil }
+        let parts = s.split(separator: " ")
+        guard parts.count == 2, let b = Float(parts[0]) else { return nil }
+        return (max(0, min(1, b)), parts[1] == "1")
+    }
+
+    static func writeState(brightness: Float, auto: Bool) {
+        try? "\(brightness) \(auto ? 1 : 0)".write(
+            toFile: statePath, atomically: true, encoding: .utf8)
+    }
+
     /// Ask any running kbglow session to stop (it restores brightness itself).
     static func killExisting() {
         guard let pid = readPid(), pid != ProcessInfo.processInfo.processIdentifier else { return }
@@ -56,5 +85,18 @@ final class Session {
             for _ in 0..<20 where kill(pid, 0) == 0 { usleep(25_000) }
         }
         try? FileManager.default.removeItem(atPath: pidPath)
+    }
+
+    /// `kbglow stop`: stop a running session, and if a state file is still
+    /// around afterwards (the session crashed or was SIGKILLed before it
+    /// could restore), restore the original state from the file.
+    static func stopAndRestore() {
+        killExisting()
+        guard let (b, auto) = readState() else { return }
+        if let bl = Backlight() {
+            bl.brightness = b
+            bl.setAutoBrightness(auto)
+        }
+        try? FileManager.default.removeItem(atPath: statePath)
     }
 }
