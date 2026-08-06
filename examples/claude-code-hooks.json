@@ -1,0 +1,36 @@
+{
+  "//": "Merge the 'hooks' section below into ~/.claude/settings.json. Replace $HOME with your actual home directory if your shell does not expand it.",
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.local/bin/kbglow pulse -t 600 >/dev/null 2>&1 &"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$HOME/.local/bin/kbglow stop" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$HOME/.local/bin/kbglow stop" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$HOME/.local/bin/kbglow stop" }
+        ]
+      }
+    ]
+  }
+}
