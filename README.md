@@ -17,7 +17,7 @@ Mac のキーボードバックライトを「通知デバイス」にする小�
 ## インストール
 
 ```sh
-git clone https://github.com/PenginPenPen/kbglow.git
+git clone https://github.com/totota-08/kbglow.git
 cd kbglow
 make install        # ~/.local/bin/kbglow に入ります
 ```
