@@ -5,7 +5,7 @@ nonisolated(unsafe) var gStop: sig_atomic_t = 0
 
 private let pidPath = "/tmp/kbglow.pid"
 
-/// A long-running lighting session (pulse / audio). Ensures only one instance
+/// A long-running lighting session (pulse). Ensures only one instance
 /// runs at a time, and restores the original backlight state on exit.
 final class Session {
     let backlight: Backlight

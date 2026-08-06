@@ -7,18 +7,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "kbglow",
-            path: "Sources/kbglow",
-            exclude: ["Info.plist"],
-            linkerSettings: [
-                // Embed Info.plist so macOS can show the system-audio-recording
-                // permission prompt (TCC) for this bare CLI binary.
-                .unsafeFlags([
-                    "-Xlinker", "-sectcreate",
-                    "-Xlinker", "__TEXT",
-                    "-Xlinker", "__info_plist",
-                    "-Xlinker", "Sources/kbglow/Info.plist",
-                ])
-            ]
+            path: "Sources/kbglow"
         )
     ]
 )

@@ -3,7 +3,7 @@ import Foundation
 let version = "0.1.0"
 
 let usage = """
-kbglow \(version) — Mac keyboard backlight, but fun
+kbglow \(version) — your keyboard glows while your AI waits for approval
 
 USAGE:
   kbglow set <0-100>          Set backlight brightness (percent)
@@ -15,18 +15,10 @@ USAGE:
       --period <sec>            Cycle length in seconds (default: 1.6)
       --min <0-100>             Low point of the cycle (default: 0)
       --max <0-100>             High point of the cycle (default: 100)
-  kbglow audio [options]      Visualizer: flash with whatever the Mac is playing
-      --gain <n>                Sensitivity multiplier (default: 6)
-      --base <0-100>            Brightness floor when silent (default: 0)
-      --smooth                  Gentle level-following instead of beat strobing
-      --strobe                  Hard 0/100 switching only — no in-between levels
-      --demo [sec]              Preview with a synthetic beat (no audio permission
-                                needed; default 10 seconds)
-  kbglow stop                 Stop a running pulse/audio session, restore state
+  kbglow stop                 Stop a running pulse session, restore state
 
-Pulse and audio restore the previous brightness and auto-brightness setting
-when they exit. Only one session runs at a time (starting a new one replaces
-the old).
+Pulse restores the previous brightness and auto-brightness setting when it
+exits. Only one session runs at a time (starting a new one replaces the old).
 """
 
 func parsePercent(_ s: String) -> Float? {
@@ -85,23 +77,6 @@ case "pulse":
     let maxB = optionValue(&args, ["--max"]).flatMap(parsePercent) ?? 1
     let blink = args.contains("--blink")
     Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period), minB: minB, maxB: maxB, blink: blink)
-
-case "audio":
-    let gain = optionValue(&args, ["--gain"]).flatMap(Float.init) ?? 6
-    let base = optionValue(&args, ["--base"]).flatMap(parsePercent) ?? 0
-    let mode: VisualizerEnvelope.Mode = args.contains("--strobe") ? .strobe
-        : args.contains("--smooth") ? .smooth : .beat
-    if #available(macOS 14.2, *) {
-        if let demoIndex = args.firstIndex(of: "--demo") {
-            let duration = demoIndex + 1 < args.count ? Double(args[demoIndex + 1]) ?? 10 : 10
-            AudioReactive.runDemo(gain: gain, base: base, mode: mode, duration: duration)
-        } else {
-            AudioReactive.run(gain: gain, base: base, mode: mode)
-        }
-    } else {
-        FileHandle.standardError.write(Data("kbglow: audio mode requires macOS 14.2 or later\n".utf8))
-        exit(1)
-    }
 
 case "stop":
     Session.killExisting()
