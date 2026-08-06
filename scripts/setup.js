@@ -20,7 +20,9 @@ const settingsDir = path.join(os.homedir(), '.claude');
 const settingsPath = path.join(settingsDir, 'settings.json');
 const binPath = path.join(__dirname, '..', 'bin', 'kbglow');
 
-const PULSE = `${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &`;
+// The Notification hook also fires for "idle for 60s" nudges; the grep keeps
+// the blink to actual permission requests (hook JSON arrives on stdin).
+const PULSE = `grep -qi permission && (${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
 const STOP = `${binPath} stop >/dev/null 2>&1 || true`;
 const EVENTS = {
   Notification: PULSE,
