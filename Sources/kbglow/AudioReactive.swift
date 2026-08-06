@@ -2,11 +2,86 @@ import Foundation
 import CoreAudio
 import AudioToolbox
 
+/// Maps an incoming loudness signal to flashy, visualizer-style brightness:
+/// auto-gain against the recent peak, gamma curve for punch, instant attack
+/// with VU-meter falloff, and a strobe burst on detected onsets (beats).
+struct VisualizerEnvelope {
+    let base: Float
+    let gain: Float
+    let smooth: Bool
+
+    private var avg: Float = 0.001    // slow-moving average, for onset detection
+    private var peak: Float = 0.02    // decaying peak, for auto-gain
+    private var level: Float = 0
+    private var strobe = 0
+    private var lastOut: Float = -1
+
+    init(base: Float, gain: Float, smooth: Bool) {
+        self.base = base
+        self.gain = gain
+        self.smooth = smooth
+    }
+
+    /// Feed one loudness sample (~90 Hz). Returns a brightness to apply, or
+    /// nil when the value hasn't changed enough to be worth an XPC call.
+    mutating func process(_ rms: Float) -> Float? {
+        var out: Float
+        if smooth {
+            let target = min(1, base + rms * gain)
+            level += (target - level) * (target > level ? 0.6 : 0.08)
+            out = level
+        } else {
+            avg += (rms - avg) * 0.02
+            peak = max(rms, peak * 0.9985)
+            var v = min(1, (rms / max(peak, 0.02)) * (gain / 6))
+            v = powf(v, 1.6)
+            if v >= level {
+                level = v                         // instant attack
+            } else {
+                level = max(v, level * 0.80)      // fast VU-style falloff
+            }
+            if strobe == 0 && rms > avg * 2.5 && rms > 0.03 {
+                strobe = 10                       // ~110 ms strobe burst per beat
+            }
+            out = base + (1 - base) * level
+            if strobe > 0 {
+                out = (strobe / 3) % 2 == 0 ? 1 : 0
+                strobe -= 1
+            }
+        }
+        let quantized = (out * 50).rounded() / 50
+        guard quantized != lastOut else { return nil }
+        lastOut = quantized
+        return quantized
+    }
+}
+
 /// Lights the keyboard in sync with whatever is playing on the Mac, using a
 /// Core Audio process tap (macOS 14.2+) on all system audio output.
 @available(macOS 14.2, *)
 enum AudioReactive {
-    static func run(gain: Float, base: Float, attack: Float, release: Float) {
+    /// Preview the visualizer with a synthetic 130 BPM beat — no audio
+    /// permission needed. Handy for tuning and for showing off.
+    static func runDemo(gain: Float, base: Float, smooth: Bool, duration: Double) {
+        guard let session = Session() else { exit(1) }
+        var env = VisualizerEnvelope(base: base, gain: gain, smooth: smooth)
+        let dt = 1.0 / 90.0
+        let beatPeriod = 60.0 / 130.0
+        var t = 0.0
+        while gStop == 0, t < duration {
+            let sinceKick = t.truncatingRemainder(dividingBy: beatPeriod)
+            let sinceHat = (t + beatPeriod / 2).truncatingRemainder(dividingBy: beatPeriod / 2)
+            let kick = 0.30 * Float(exp(-sinceKick * 9))
+            let hat = 0.06 * Float(exp(-sinceHat * 18))
+            let rms = kick + hat + Float.random(in: 0...0.005)
+            if let b = env.process(rms) { session.backlight.brightness = b }
+            usleep(useconds_t(dt * 1_000_000))
+            t += dt
+        }
+        session.finish()
+    }
+
+    static func run(gain: Float, base: Float, smooth: Bool) {
         guard ensureAudioCapturePermission() else {
             fail("System Audio Recording permission was not granted. Enable it in " +
                  "System Settings > Privacy & Security > Screen & System Audio Recording " +
@@ -60,8 +135,7 @@ enum AudioReactive {
 
         let debug = ProcessInfo.processInfo.environment["KBGLOW_DEBUG"] != nil
         var callbackCount = 0
-        var level: Float = 0
-        var lastSet: Float = -1
+        var env = VisualizerEnvelope(base: base, gain: gain, smooth: smooth)
         var ioProcID: AudioDeviceIOProcID?
         let queue = DispatchQueue(label: "kbglow.audio")
         err = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggID, queue) { _, inInputData, _, _, _ in
@@ -83,12 +157,8 @@ enum AudioReactive {
                     FileHandle.standardError.write(Data("cb #\(callbackCount) buffers=\(abl.count) samples=\(count) rms=\(rms)\n".utf8))
                 }
             }
-            let target = min(1, base + rms * gain)
-            level += (target - level) * (target > level ? attack : release)
-            let quantized = (level * 100).rounded() / 100
-            if quantized != lastSet {
-                lastSet = quantized
-                session.backlight.brightness = quantized
+            if let b = env.process(rms) {
+                session.backlight.brightness = b
             }
         }
         guard err == noErr, ioProcID != nil else {

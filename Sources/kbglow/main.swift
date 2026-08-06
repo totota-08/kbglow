@@ -14,9 +14,12 @@ USAGE:
       --period <sec>            Breath cycle length (default: 1.6)
       --min <0-100>             Low point of the breath (default: 0)
       --max <0-100>             High point of the breath (default: 100)
-  kbglow audio [options]      Light up with whatever audio the Mac is playing
+  kbglow audio [options]      Visualizer: flash with whatever the Mac is playing
       --gain <n>                Sensitivity multiplier (default: 6)
       --base <0-100>            Brightness floor when silent (default: 0)
+      --smooth                  Gentle level-following instead of beat strobing
+      --demo [sec]              Preview with a synthetic beat (no audio permission
+                                needed; default 10 seconds)
   kbglow stop                 Stop a running pulse/audio session, restore state
 
 Pulse and audio restore the previous brightness and auto-brightness setting
@@ -83,8 +86,14 @@ case "pulse":
 case "audio":
     let gain = optionValue(&args, ["--gain"]).flatMap(Float.init) ?? 6
     let base = optionValue(&args, ["--base"]).flatMap(parsePercent) ?? 0
+    let smooth = args.contains("--smooth")
     if #available(macOS 14.2, *) {
-        AudioReactive.run(gain: gain, base: base, attack: 0.6, release: 0.08)
+        if let demoIndex = args.firstIndex(of: "--demo") {
+            let duration = demoIndex + 1 < args.count ? Double(args[demoIndex + 1]) ?? 10 : 10
+            AudioReactive.runDemo(gain: gain, base: base, smooth: smooth, duration: duration)
+        } else {
+            AudioReactive.run(gain: gain, base: base, smooth: smooth)
+        }
     } else {
         FileHandle.standardError.write(Data("kbglow: audio mode requires macOS 14.2 or later\n".utf8))
         exit(1)
