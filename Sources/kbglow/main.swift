@@ -1,6 +1,6 @@
 import Foundation
 
-let version = "0.1.0"
+let version = "0.2.0"
 
 let usage = """
 kbglow \(version) — your keyboard glows while your AI waits for approval

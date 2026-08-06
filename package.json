@@ -1,0 +1,38 @@
+{
+  "name": "kbglow",
+  "version": "0.2.0",
+  "description": "Your Mac's keyboard backlight blinks while your AI agent (e.g. Claude Code) is waiting for approval",
+  "license": "MIT",
+  "author": "totota-08",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/totota-08/kbglow.git"
+  },
+  "homepage": "https://github.com/totota-08/kbglow#readme",
+  "os": [
+    "darwin"
+  ],
+  "bin": {
+    "kbglow": "bin/kbglow",
+    "kbglow-setup": "scripts/setup.js"
+  },
+  "files": [
+    "bin/kbglow",
+    "scripts/setup.js",
+    "README.md",
+    "README.ja.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepare": "./scripts/build.sh",
+    "postinstall": "node scripts/setup.js --postinstall"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "ai-agent",
+    "keyboard-backlight",
+    "notification",
+    "macos"
+  ]
+}
