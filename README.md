@@ -60,7 +60,7 @@ kbglow stop             実行中の pulse / audio を止めて元の状態に�
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.local/bin/kbglow pulse -t 600 >/dev/null 2>&1 &"
+            "command": "$HOME/.local/bin/kbglow pulse --blink --period 2 -t 600 >/dev/null 2>&1 &"
           }
         ]
       }

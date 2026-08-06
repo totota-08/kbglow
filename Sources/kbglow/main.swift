@@ -9,11 +9,12 @@ USAGE:
   kbglow set <0-100>          Set backlight brightness (percent)
   kbglow get                  Print current brightness (percent)
   kbglow on | off             Full brightness / off
-  kbglow pulse [options]      Breathe until stopped (for "agent waiting" alerts)
+  kbglow pulse [options]      Flash until stopped (for "agent waiting" alerts)
+      --blink                   Hard 0/100 on-off blinking instead of breathing
       -t, --timeout <sec>       Stop automatically after N seconds (default: 600)
-      --period <sec>            Breath cycle length (default: 1.6)
-      --min <0-100>             Low point of the breath (default: 0)
-      --max <0-100>             High point of the breath (default: 100)
+      --period <sec>            Cycle length in seconds (default: 1.6)
+      --min <0-100>             Low point of the cycle (default: 0)
+      --max <0-100>             High point of the cycle (default: 100)
   kbglow audio [options]      Visualizer: flash with whatever the Mac is playing
       --gain <n>                Sensitivity multiplier (default: 6)
       --base <0-100>            Brightness floor when silent (default: 0)
@@ -81,7 +82,8 @@ case "pulse":
     let period = optionValue(&args, ["--period"]).flatMap(Double.init) ?? 1.6
     let minB = optionValue(&args, ["--min"]).flatMap(parsePercent) ?? 0
     let maxB = optionValue(&args, ["--max"]).flatMap(parsePercent) ?? 1
-    Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period), minB: minB, maxB: maxB)
+    let blink = args.contains("--blink")
+    Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period), minB: minB, maxB: maxB, blink: blink)
 
 case "audio":
     let gain = optionValue(&args, ["--gain"]).flatMap(Float.init) ?? 6
