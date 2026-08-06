@@ -6,31 +6,58 @@ import AudioToolbox
 /// auto-gain against the recent peak, gamma curve for punch, instant attack
 /// with VU-meter falloff, and a strobe burst on detected onsets (beats).
 struct VisualizerEnvelope {
+    enum Mode {
+        case beat    // VU-style envelope with strobe bursts on onsets (default)
+        case smooth  // gentle level following
+        case strobe  // dark, with a hard full-on flash on each detected hit
+    }
+
     let base: Float
     let gain: Float
-    let smooth: Bool
+    let mode: Mode
 
     private var avg: Float = 0.001    // slow-moving average, for onset detection
     private var peak: Float = 0.02    // decaying peak, for auto-gain
     private var level: Float = 0
     private var strobe = 0
+    private var burst = 0
+    private var tick = 0
     private var lastOut: Float = -1
 
-    init(base: Float, gain: Float, smooth: Bool) {
+    init(base: Float, gain: Float, mode: Mode) {
         self.base = base
         self.gain = gain
-        self.smooth = smooth
+        self.mode = mode
     }
 
     /// Feed one loudness sample (~90 Hz). Returns a brightness to apply, or
     /// nil when the value hasn't changed enough to be worth an XPC call.
     mutating func process(_ rms: Float) -> Float? {
         var out: Float
-        if smooth {
+        switch mode {
+        case .smooth:
             let target = min(1, base + rms * gain)
             level += (target - level) * (target > level ? 0.6 : 0.08)
             out = level
-        } else {
+        case .strobe:
+            avg += (rms - avg) * 0.02
+            // While the signal sits above the running average — a hit, or a
+            // whole loud passage — hammer the backlight with a ~24 Hz hard
+            // flicker; go dark the moment the energy drops. The music's own
+            // dynamics shape the strobing.
+            let threshold = 1 + 3 / max(gain, 1)   // gain 6 -> 1.5x; higher gain = more sensitive
+            if rms > avg * threshold && rms > 0.015 {
+                burst = max(burst, 8)              // ~80 ms of flicker, retriggered while loud
+            }
+            if burst > 0 {
+                burst -= 1
+                tick += 1
+                out = (tick / 2) % 2 == 0 ? 1 : 0  // 2 frames per state ≈ 24 Hz strobe
+            } else {
+                tick = 0
+                out = base
+            }
+        case .beat:
             avg += (rms - avg) * 0.02
             peak = max(rms, peak * 0.9985)
             var v = min(1, (rms / max(peak, 0.02)) * (gain / 6))
@@ -62,9 +89,9 @@ struct VisualizerEnvelope {
 enum AudioReactive {
     /// Preview the visualizer with a synthetic 130 BPM beat — no audio
     /// permission needed. Handy for tuning and for showing off.
-    static func runDemo(gain: Float, base: Float, smooth: Bool, duration: Double) {
+    static func runDemo(gain: Float, base: Float, mode: VisualizerEnvelope.Mode, duration: Double) {
         guard let session = Session() else { exit(1) }
-        var env = VisualizerEnvelope(base: base, gain: gain, smooth: smooth)
+        var env = VisualizerEnvelope(base: base, gain: gain, mode: mode)
         let dt = 1.0 / 90.0
         let beatPeriod = 60.0 / 130.0
         var t = 0.0
@@ -81,7 +108,7 @@ enum AudioReactive {
         session.finish()
     }
 
-    static func run(gain: Float, base: Float, smooth: Bool) {
+    static func run(gain: Float, base: Float, mode: VisualizerEnvelope.Mode) {
         guard ensureAudioCapturePermission() else {
             fail("System Audio Recording permission was not granted. Enable it in " +
                  "System Settings > Privacy & Security > Screen & System Audio Recording " +
@@ -135,7 +162,7 @@ enum AudioReactive {
 
         let debug = ProcessInfo.processInfo.environment["KBGLOW_DEBUG"] != nil
         var callbackCount = 0
-        var env = VisualizerEnvelope(base: base, gain: gain, smooth: smooth)
+        var env = VisualizerEnvelope(base: base, gain: gain, mode: mode)
         var ioProcID: AudioDeviceIOProcID?
         let queue = DispatchQueue(label: "kbglow.audio")
         err = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggID, queue) { _, inInputData, _, _, _ in
@@ -158,6 +185,9 @@ enum AudioReactive {
                 }
             }
             if let b = env.process(rms) {
+                if debug && b == 1 {
+                    FileHandle.standardError.write(Data("FLASH rms=\(rms)\n".utf8))
+                }
                 session.backlight.brightness = b
             }
         }

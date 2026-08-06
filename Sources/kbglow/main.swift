@@ -19,6 +19,7 @@ USAGE:
       --gain <n>                Sensitivity multiplier (default: 6)
       --base <0-100>            Brightness floor when silent (default: 0)
       --smooth                  Gentle level-following instead of beat strobing
+      --strobe                  Hard 0/100 switching only — no in-between levels
       --demo [sec]              Preview with a synthetic beat (no audio permission
                                 needed; default 10 seconds)
   kbglow stop                 Stop a running pulse/audio session, restore state
@@ -88,13 +89,14 @@ case "pulse":
 case "audio":
     let gain = optionValue(&args, ["--gain"]).flatMap(Float.init) ?? 6
     let base = optionValue(&args, ["--base"]).flatMap(parsePercent) ?? 0
-    let smooth = args.contains("--smooth")
+    let mode: VisualizerEnvelope.Mode = args.contains("--strobe") ? .strobe
+        : args.contains("--smooth") ? .smooth : .beat
     if #available(macOS 14.2, *) {
         if let demoIndex = args.firstIndex(of: "--demo") {
             let duration = demoIndex + 1 < args.count ? Double(args[demoIndex + 1]) ?? 10 : 10
-            AudioReactive.runDemo(gain: gain, base: base, smooth: smooth, duration: duration)
+            AudioReactive.runDemo(gain: gain, base: base, mode: mode, duration: duration)
         } else {
-            AudioReactive.run(gain: gain, base: base, smooth: smooth)
+            AudioReactive.run(gain: gain, base: base, mode: mode)
         }
     } else {
         FileHandle.standardError.write(Data("kbglow: audio mode requires macOS 14.2 or later\n".utf8))

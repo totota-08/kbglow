@@ -30,11 +30,21 @@ final class Backlight {
             return fn(client, sel, keyboardID)
         }
         set {
+            let v = max(0, min(1, newValue))
+            // Prefer the fadeSpeed variant with 0 (no fade) so hard blinks stay
+            // hard instead of being smoothed by the default brightness ramp.
+            let fadeSel = NSSelectorFromString("setBrightness:fadeSpeed:commit:forKeyboard:")
+            if client.responds(to: fadeSel) {
+                typealias FadeFn = @convention(c) (NSObject, Selector, Float, Int32, Bool, UInt64) -> Bool
+                let fn = unsafeBitCast(client.method(for: fadeSel), to: FadeFn.self)
+                _ = fn(client, fadeSel, v, 0, true, keyboardID)
+                return
+            }
             let sel = NSSelectorFromString("setBrightness:forKeyboard:")
             guard client.responds(to: sel) else { return }
             typealias Fn = @convention(c) (NSObject, Selector, Float, UInt64) -> Bool
             let fn = unsafeBitCast(client.method(for: sel), to: Fn.self)
-            _ = fn(client, sel, max(0, min(1, newValue)), keyboardID)
+            _ = fn(client, sel, v, keyboardID)
         }
     }
 
