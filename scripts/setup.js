@@ -2,8 +2,12 @@
 // Wire kbglow into Claude Code's hooks (~/.claude/settings.json) so the
 // keyboard blinks while Claude is waiting for approval.
 //
-//   kbglow-setup            add/update the hooks
-//   kbglow-setup --remove   remove every kbglow hook
+//   kbglow-setup                 add/update the hooks
+//   kbglow-setup --remove        remove every kbglow hook
+//   kbglow-setup --watch         install a launchd agent running `kbglow watch`
+//                                (blink on Claude Desktop / ChatGPT notifications;
+//                                needs Full Disk Access for the kbglow binary)
+//   kbglow-setup --watch-remove  stop and remove the watch agent
 //
 // Runs automatically as npm postinstall (--postinstall: never fails the
 // install, and skips silently when no Claude settings can be touched).
@@ -12,9 +16,12 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execSync } = require('child_process');
 
 const POSTINSTALL = process.argv.includes('--postinstall');
 const REMOVE = process.argv.includes('--remove');
+const WATCH = process.argv.includes('--watch');
+const WATCH_REMOVE = process.argv.includes('--watch-remove');
 
 const settingsDir = path.join(os.homedir(), '.claude');
 const settingsPath = path.join(settingsDir, 'settings.json');
@@ -82,8 +89,67 @@ function main() {
   }
 }
 
+const agentLabel = 'dev.totota08.kbglow.watch';
+const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${agentLabel}.plist`);
+
+function launchctl(cmd) {
+  try {
+    execSync(`launchctl ${cmd}`, { stdio: 'ignore' });
+  } catch (e) {
+    /* bootout of a non-loaded agent etc. — fine */
+  }
+}
+
+function installWatchAgent() {
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>${agentLabel}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>${binPath}</string>
+		<string>watch</string>
+	</array>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><true/>
+	<key>ThrottleInterval</key><integer>30</integer>
+	<key>StandardErrorPath</key><string>/tmp/kbglow.watch.log</string>
+</dict>
+</plist>
+`;
+  fs.mkdirSync(path.dirname(plistPath), { recursive: true });
+  fs.writeFileSync(plistPath, plist);
+  const uid = process.getuid();
+  launchctl(`bootout gui/${uid} ${plistPath}`);
+  launchctl(`bootstrap gui/${uid} ${plistPath}`);
+  console.log('kbglow: watch agent installed (blinks on Claude Desktop / ChatGPT notifications)');
+  console.log('kbglow: IMPORTANT — grant Full Disk Access to this binary, or it cannot');
+  console.log('kbglow: read the Notification Center database:');
+  console.log(`kbglow:   System Settings > Privacy & Security > Full Disk Access > + >`);
+  console.log(`kbglow:   ${binPath}`);
+  console.log('kbglow: progress/errors are logged to /tmp/kbglow.watch.log');
+  console.log('kbglow: (undo anytime with: kbglow-setup --watch-remove)');
+}
+
+function removeWatchAgent() {
+  launchctl(`bootout gui/${process.getuid()} ${plistPath}`);
+  try {
+    fs.unlinkSync(plistPath);
+  } catch (e) {
+    /* already gone */
+  }
+  console.log('kbglow: watch agent removed');
+}
+
 try {
-  main();
+  if (WATCH) {
+    installWatchAgent();
+  } else if (WATCH_REMOVE) {
+    removeWatchAgent();
+  } else {
+    main();
+  }
 } catch (e) {
   if (POSTINSTALL) {
     console.warn(`kbglow: could not configure Claude Code hooks automatically (${e.message})`);

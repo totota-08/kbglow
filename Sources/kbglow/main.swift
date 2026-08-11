@@ -1,6 +1,6 @@
 import Foundation
 
-let version = "0.2.2"
+let version = "0.3.0"
 
 let usage = """
 kbglow \(version) — your keyboard glows while your AI waits for approval
@@ -15,6 +15,12 @@ USAGE:
       --period <sec>            Cycle length in seconds (default: 1.6)
       --min <0-100>             Low point of the cycle (default: 0)
       --max <0-100>             High point of the cycle (default: 100)
+  kbglow watch [options]      Blink when a GUI AI app (Claude Desktop, ChatGPT)
+                              posts a notification; stop when you focus the app.
+                              Needs Full Disk Access. Runs in the foreground.
+      --app <bundle-id>         App to watch (repeatable; default: Claude
+                                Desktop + ChatGPT)
+      -t, --timeout <sec>       Max blink duration per notification (default: 120)
   kbglow stop                 Stop a running pulse session, restore state
 
 Pulse restores the previous brightness and auto-brightness setting when it
@@ -77,6 +83,15 @@ case "pulse":
     let maxB = optionValue(&args, ["--max"]).flatMap(parsePercent) ?? 1
     let blink = args.contains("--blink")
     Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period), minB: minB, maxB: maxB, blink: blink)
+
+case "watch":
+    var apps: [String] = []
+    while let id = optionValue(&args, ["--app"]) { apps.append(id) }
+    let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 120
+    for sig in [SIGINT, SIGTERM, SIGHUP] {
+        signal(sig) { _ in gStop = 1 }
+    }
+    Watch.run(bundleIDs: apps, pulseTimeout: timeout)
 
 case "stop":
     Session.stopAndRestore()

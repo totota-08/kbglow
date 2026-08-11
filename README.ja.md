@@ -47,6 +47,20 @@ make install        # ~/.local/bin/kbglow に入ります
 
 Claude Code 以外のエージェントでも、「承認待ちで任意コマンドを実行できる」仕組みがあれば `kbglow pulse` を呼ぶだけで同じことができます。
 
+## Claude デスクトップ / ChatGPT アプリ(GUIアプリ)
+
+GUIアプリにはフック機構がないため、kbglow は代わりに **macOS の通知センターを監視**します。Claude デスクトップや ChatGPT アプリが通知を出したら(タスク完了・要対応など)キーボードが明滅し、**そのアプリにフォーカスを移すと消灯**します。セットアップ:
+
+```sh
+kbglow-setup --watch
+```
+
+ログイン時に自動起動する常駐エージェント(`kbglow watch`)が入ります。**手動ステップが1つだけ必要**です: 通知センターDBの読み取りに必要なため、kbglow バイナリに**フルディスクアクセス**を付与してください(システム設定 → プライバシーとセキュリティ → フルディスクアクセス → 「+」→ 上記コマンドが表示するパス)。補足:
+
+- macOS は通知をDBに遅延書き込みするため、点滅開始は通知の**5〜10秒後**です
+- 光るのは「アプリが通知を出したとき」です。通知を出さないアプリ内の承認ダイアログは検知できません
+- 他のアプリも `kbglow watch --app <bundle-id>` で監視可能。解除は `kbglow-setup --watch-remove`
+
 ## CLI の使い方
 
 ```
@@ -58,9 +72,15 @@ kbglow pulse            明滅開始(承認待ちアラート用)
     -t, --timeout <秒>    自動停止までの秒数(デフォルト 600)
     --period <秒>         明滅1回の長さ(デフォルト 1.6)
     --min / --max <0-100> 明滅の下限・上限
+kbglow watch            GUIアプリの通知で明滅(フォアグラウンド実行;
+    --app <bundle-id>     監視対象アプリ。複数指定可。デフォルトは
+                          Claudeデスクトップ + ChatGPT)
+    -t, --timeout <秒>    通知1件あたりの最大点滅時間(デフォルト 120)
 kbglow stop             実行中の pulse を止めて元の状態に戻す
-kbglow-setup            Claude Code フックを(再)設定
-kbglow-setup --remove   Claude Code フックを削除
+kbglow-setup                 Claude Code フックを(再)設定
+kbglow-setup --remove        Claude Code フックを削除
+kbglow-setup --watch         常駐ウォッチャーを設置(launchd)
+kbglow-setup --watch-remove  常駐ウォッチャーを解除
 ```
 
 `pulse` は終了時に元の明るさと自動調光設定を復元します。同時に動くのは1つだけで、新しく起動すると前のセッションは置き換わります。

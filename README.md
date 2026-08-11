@@ -47,6 +47,20 @@ Then add the hooks from `examples/claude-code-hooks.json` to `~/.claude/settings
 
 Any other agent that can run a shell command while waiting for approval can do the same — just call `kbglow pulse`.
 
+## Claude Desktop / ChatGPT app (GUI apps)
+
+GUI apps have no hook system, so kbglow watches the macOS Notification Center instead: whenever Claude Desktop or the ChatGPT app posts a notification (task finished, needs your attention), the keyboard starts blinking — and stops the moment you bring that app to the front. Set it up with:
+
+```sh
+kbglow-setup --watch
+```
+
+This installs a login agent that runs `kbglow watch` in the background. **One manual step is required**: grant Full Disk Access to the kbglow binary (System Settings → Privacy & Security → Full Disk Access → “+” → the path printed by the command above) — reading the Notification Center database requires it. Notes:
+
+- macOS writes notifications to the database lazily, so the blink starts ~5–10 seconds after the notification appears
+- It blinks for whatever these apps choose to notify about; in-app approval dialogs that post no notification cannot be detected
+- Watch other apps with `kbglow watch --app <bundle-id>`; undo with `kbglow-setup --watch-remove`
+
 ## CLI usage
 
 ```
@@ -58,9 +72,15 @@ kbglow pulse            Blink until stopped (the approval alert)
     -t, --timeout <sec>   Auto-stop after N seconds (default 600)
     --period <sec>        Cycle length (default 1.6)
     --min / --max <0-100> Low / high point of the cycle
+kbglow watch            Blink on notifications from GUI AI apps (foreground;
+    --app <bundle-id>     app to watch, repeatable; default: Claude Desktop
+                          + ChatGPT)
+    -t, --timeout <sec>   Max blink per notification (default 120)
 kbglow stop             Stop a running pulse, restore previous state
-kbglow-setup            (Re)install the Claude Code hooks
-kbglow-setup --remove   Remove the Claude Code hooks
+kbglow-setup                 (Re)install the Claude Code hooks
+kbglow-setup --remove        Remove the Claude Code hooks
+kbglow-setup --watch         Install the background watcher (launchd)
+kbglow-setup --watch-remove  Remove the background watcher
 ```
 
 `pulse` restores the previous brightness and auto-brightness setting on exit. Only one session runs at a time; starting a new one replaces the old.
