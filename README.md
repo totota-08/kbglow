@@ -55,7 +55,7 @@ GUI apps have no hook system, so kbglow watches the macOS Notification Center in
 kbglow-setup --watch
 ```
 
-This installs a login agent that runs `kbglow watch` in the background. **One manual step is required**: grant Full Disk Access to the kbglow binary (System Settings → Privacy & Security → Full Disk Access → “+” → the path printed by the command above) — reading the Notification Center database requires it. Notes:
+This installs a login agent that runs `kbglow watch` in the background, then walks you through the **one step macOS reserves for humans**: granting Full Disk Access (needed to read the Notification Center database). The command opens Finder with the binary pre-selected and the Full Disk Access pane side by side — drag the file into the list, flip the toggle, and the command confirms the moment it starts working. Notes:
 
 - macOS writes notifications to the database lazily, so the blink starts ~5–10 seconds after the notification appears
 - The Full Disk Access grant is tied to the binary's code signature, so **after updating kbglow (`npm install -g kbglow`) you must remove and re-add it** in the Full Disk Access list

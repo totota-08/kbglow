@@ -83,9 +83,17 @@ function main() {
     console.log(`kbglow: Claude Code hooks installed in ${settingsPath}`);
     console.log('kbglow: your keyboard now blinks while Claude waits for approval');
     console.log('kbglow: (undo anytime with: kbglow-setup --remove)');
+    console.log('kbglow: GUI apps too (Claude Desktop / ChatGPT)? run: kbglow-setup --watch');
   }
   if (backedUp) {
     console.log(`kbglow: previous settings backed up to ${settingsPath}.kbglow-bak`);
+  }
+  if (POSTINSTALL && !REMOVE && fs.existsSync(plistPath)) {
+    // The watch agent points at a binary this install just replaced, which
+    // invalidates its signature-bound Full Disk Access grant.
+    console.warn('kbglow: NOTE — the update replaced the kbglow binary, so the watch');
+    console.warn('kbglow: agent lost its Full Disk Access grant. Run "kbglow-setup --watch"');
+    console.warn('kbglow: to re-grant it (guided).');
   }
 }
 
@@ -99,6 +107,46 @@ function launchctl(cmd) {
     /* bootout of a non-loaded agent etc. — fine */
   }
 }
+
+function sleep(seconds) {
+  execSync(`sleep ${seconds}`);
+}
+
+/// Walk the user to the one step we cannot do for them: Finder opens with the
+/// binary pre-selected, the Full Disk Access pane opens next to it, the path
+/// is on the clipboard — then we watch the agent's log and confirm the moment
+/// the grant lands.
+function guideFullDiskAccess() {
+  try {
+    execSync('pbcopy', { input: binPath });
+    execSync(`open -R "${binPath}"`);
+    execSync('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"');
+  } catch (e) {
+    /* headless / non-GUI session — the printed instructions still apply */
+  }
+  console.log('');
+  console.log('kbglow: two windows just opened. In System Settings > Full Disk Access:');
+  console.log('kbglow:   1. drag the highlighted "kbglow" file from Finder into the list');
+  console.log('kbglow:      (its path is also on your clipboard for the "+" > Cmd+Shift+G route)');
+  console.log('kbglow:   2. turn its toggle ON');
+  console.log('kbglow: waiting for the grant (Ctrl-C to skip — the watcher keeps retrying anyway)...');
+  for (let i = 0; i < 90; i++) {
+    sleep(2);
+    try {
+      const log = fs.readFileSync(WATCH_LOG, 'utf8');
+      if (log.includes('watching notifications')) {
+        console.log('kbglow: ✓ granted — now watching for Claude Desktop / ChatGPT notifications');
+        return;
+      }
+    } catch (e) {
+      /* log not written yet */
+    }
+  }
+  console.log('kbglow: no grant detected yet — the watcher keeps retrying every 30s,');
+  console.log(`kbglow: so finishing the steps above later is fine (log: ${WATCH_LOG})`);
+}
+
+const WATCH_LOG = '/tmp/kbglow.watch.log';
 
 function installWatchAgent() {
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -122,14 +170,15 @@ function installWatchAgent() {
   fs.writeFileSync(plistPath, plist);
   const uid = process.getuid();
   launchctl(`bootout gui/${uid} ${plistPath}`);
+  try {
+    fs.unlinkSync(WATCH_LOG); // stale success lines would fool the grant detection
+  } catch (e) {
+    /* no old log */
+  }
   launchctl(`bootstrap gui/${uid} ${plistPath}`);
   console.log('kbglow: watch agent installed (blinks on Claude Desktop / ChatGPT notifications)');
-  console.log('kbglow: IMPORTANT — grant Full Disk Access to this binary, or it cannot');
-  console.log('kbglow: read the Notification Center database:');
-  console.log(`kbglow:   System Settings > Privacy & Security > Full Disk Access > + >`);
-  console.log(`kbglow:   ${binPath}`);
-  console.log('kbglow: progress/errors are logged to /tmp/kbglow.watch.log');
   console.log('kbglow: (undo anytime with: kbglow-setup --watch-remove)');
+  guideFullDiskAccess();
 }
 
 function removeWatchAgent() {
