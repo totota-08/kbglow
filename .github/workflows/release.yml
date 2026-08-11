@@ -1,0 +1,74 @@
+name: release
+
+# The release button: Actions > release > Run workflow.
+# Bumps the version on develop, merges develop into main, publishes to npm,
+# and creates a GitHub release — all in one go.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      title:
+        description: 'Release title (default: latest commit message on develop)'
+        required: false
+        type: string
+
+jobs:
+  release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Bump version on develop
+        id: bump
+        env:
+          TITLE_INPUT: ${{ inputs.title }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          TITLE="$TITLE_INPUT"
+          if [ -z "$TITLE" ]; then TITLE=$(git log -1 --pretty=%s); fi
+          V=$(npm version ${{ inputs.bump }} --no-git-tag-version)
+          V=${V#v}
+          sed -i '' "s/^let version = \".*\"/let version = \"$V\"/" Sources/kbglow/main.swift
+          git add package.json Sources/kbglow/main.swift
+          git commit -m "v$V"
+          git push origin develop
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+
+      - name: Merge develop into main
+        env:
+          TITLE: ${{ steps.bump.outputs.title }}
+        run: |
+          git fetch origin main
+          git checkout -B main origin/main
+          git merge --no-ff develop -m "$TITLE"
+          git push origin main
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ steps.bump.outputs.title }}
+        run: |
+          gh release create "v${{ steps.bump.outputs.version }}" \
+            --target main --title "$TITLE" --generate-notes

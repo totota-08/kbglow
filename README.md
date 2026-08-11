@@ -95,6 +95,10 @@ Backlight control uses the private `CoreBrightness` framework (`KeyboardBrightne
 - `no controllable keyboard backlight found` — this Mac has no controllable backlight (or only an external keyboard)
 - Brightness changes on its own — macOS auto-brightness; kbglow disables it during a pulse and restores it afterwards
 
+## Development & releasing
+
+Day-to-day changes land on the `develop` branch (the default). To ship a release, go to **Actions → release → Run workflow**, pick a version bump (patch / minor / major) and optionally a release title — the workflow bumps the version, merges `develop` into `main`, publishes to npm, and creates a GitHub release with that title (default: the latest commit message on `develop`).
+
 ## License
 
 MIT
