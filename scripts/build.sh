@@ -13,3 +13,9 @@ fi
 
 mkdir -p bin
 cp "$BIN" bin/kbglow
+
+# Ad-hoc sign the (possibly fat) binary as a whole. The per-slice linker
+# signatures are not a valid signature for the universal file, and TCC
+# (Full Disk Access for watch mode) refuses to match an unsigned binary
+# against its recorded requirement.
+codesign --force -s - -i dev.totota08.kbglow bin/kbglow

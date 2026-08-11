@@ -58,6 +58,7 @@ kbglow-setup --watch
 This installs a login agent that runs `kbglow watch` in the background. **One manual step is required**: grant Full Disk Access to the kbglow binary (System Settings → Privacy & Security → Full Disk Access → “+” → the path printed by the command above) — reading the Notification Center database requires it. Notes:
 
 - macOS writes notifications to the database lazily, so the blink starts ~5–10 seconds after the notification appears
+- The Full Disk Access grant is tied to the binary's code signature, so **after updating kbglow (`npm install -g kbglow`) you must remove and re-add it** in the Full Disk Access list
 - It blinks for whatever these apps choose to notify about; in-app approval dialogs that post no notification cannot be detected
 - Watch other apps with `kbglow watch --app <bundle-id>`; undo with `kbglow-setup --watch-remove`
 
