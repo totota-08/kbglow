@@ -77,6 +77,11 @@ enum Watch {
     private static func maxRecordID(_ ids: [String]) -> Int64? {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            if ProcessInfo.processInfo.environment["KBGLOW_DEBUG"] != nil {
+                let msg = db.map { String(cString: sqlite3_errmsg($0)) } ?? "nil handle"
+                FileHandle.standardError.write(Data(
+                    "kbglow: sqlite open failed: \(msg) (errno=\(errno))\n".utf8))
+            }
             sqlite3_close(db)
             return nil
         }
@@ -89,7 +94,13 @@ enum Watch {
             WHERE a.identifier IN (\(placeholders))
             """
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            if ProcessInfo.processInfo.environment["KBGLOW_DEBUG"] != nil {
+                FileHandle.standardError.write(Data(
+                    "kbglow: sqlite prepare failed: \(String(cString: sqlite3_errmsg(db)))\n".utf8))
+            }
+            return nil
+        }
         defer { sqlite3_finalize(stmt) }
         for (i, id) in ids.enumerated() {
             sqlite3_bind_text(stmt, Int32(i + 1), id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
