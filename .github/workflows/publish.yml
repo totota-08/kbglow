@@ -1,0 +1,36 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Check whether this version is already on npm
+        id: check
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "kbglow@$V" version >/dev/null 2>&1; then
+            echo "kbglow@$V already published — skipping"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        if: steps.check.outputs.publish == 'true'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
