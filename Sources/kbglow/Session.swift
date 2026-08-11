@@ -1,4 +1,5 @@
 import Foundation
+import MacKeyboardBacklight
 
 /// Set to 1 by signal handlers; long-running loops poll this and exit cleanly.
 nonisolated(unsafe) var gStop: sig_atomic_t = 0
@@ -15,14 +16,16 @@ private let statePath = "/tmp/kbglow.state"
 /// would "save" a broken state and restoring would wreck the user's settings.
 /// The file always holds the state from before the *first* session, survives
 /// takeovers and crashes, and is removed once it has been restored.
+/// (kbdlight's `withManualControl` restores in-process; the file covers the
+/// cross-process handoffs it cannot see.)
 final class Session {
-    let backlight: Backlight
-    private let savedBrightness: Float
+    let backlight: KeyboardBacklight
+    private let savedBrightness: Double
     private let savedAuto: Bool
     private var finished = false
 
     init?() {
-        guard let bl = Backlight() else {
+        guard let bl = KeyboardBacklight() else {
             FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
             return nil
         }
@@ -39,10 +42,10 @@ final class Session {
             savedAuto = auto
         } else {
             savedBrightness = bl.brightness
-            savedAuto = bl.autoBrightnessEnabled
+            savedAuto = bl.autoBrightness
             Session.writeState(brightness: savedBrightness, auto: savedAuto)
         }
-        bl.setAutoBrightness(false)
+        bl.autoBrightness = false
 
         for sig in [SIGINT, SIGTERM, SIGHUP] {
             signal(sig) { _ in gStop = 1 }
@@ -53,7 +56,7 @@ final class Session {
         guard !finished else { return }
         finished = true
         backlight.brightness = savedBrightness
-        backlight.setAutoBrightness(savedAuto)
+        backlight.autoBrightness = savedAuto
         try? FileManager.default.removeItem(atPath: statePath)
         if let pid = Session.readPid(), pid == ProcessInfo.processInfo.processIdentifier {
             try? FileManager.default.removeItem(atPath: pidPath)
@@ -65,14 +68,14 @@ final class Session {
         return Int32(s.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    static func readState() -> (brightness: Float, auto: Bool)? {
+    static func readState() -> (brightness: Double, auto: Bool)? {
         guard let s = try? String(contentsOfFile: statePath, encoding: .utf8) else { return nil }
         let parts = s.split(separator: " ")
-        guard parts.count == 2, let b = Float(parts[0]) else { return nil }
+        guard parts.count == 2, let b = Double(parts[0]) else { return nil }
         return (max(0, min(1, b)), parts[1] == "1")
     }
 
-    static func writeState(brightness: Float, auto: Bool) {
+    static func writeState(brightness: Double, auto: Bool) {
         try? "\(brightness) \(auto ? 1 : 0)".write(
             toFile: statePath, atomically: true, encoding: .utf8)
     }
@@ -93,9 +96,9 @@ final class Session {
     static func stopAndRestore() {
         killExisting()
         guard let (b, auto) = readState() else { return }
-        if let bl = Backlight() {
+        if let bl = KeyboardBacklight() {
             bl.brightness = b
-            bl.setAutoBrightness(auto)
+            bl.autoBrightness = auto
         }
         try? FileManager.default.removeItem(atPath: statePath)
     }

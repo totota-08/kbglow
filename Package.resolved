@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "kbdlight",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/totota-08/kbdlight.git",
+      "state" : {
+        "revision" : "d69f45722e6b72a9a5f805d2c0f7a0a8e4fe1aaf",
+        "version" : "0.2.0"
+      }
+    }
+  ],
+  "version" : 2
+}
