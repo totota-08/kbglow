@@ -1,6 +1,7 @@
 import Foundation
+import MacKeyboardBacklight
 
-let version = "0.3.2"
+let version = "0.4.0"
 
 let usage = """
 kbglow \(version) — your keyboard glows while your AI waits for approval
@@ -27,8 +28,8 @@ Pulse restores the previous brightness and auto-brightness setting when it
 exits. Only one session runs at a time (starting a new one replaces the old).
 """
 
-func parsePercent(_ s: String) -> Float? {
-    guard let v = Float(s.replacingOccurrences(of: "%", with: "")) else { return nil }
+func parsePercent(_ s: String) -> Double? {
+    guard let v = Double(s.replacingOccurrences(of: "%", with: "")) else { return nil }
     return max(0, min(100, v)) / 100
 }
 
@@ -56,21 +57,21 @@ case "set":
         FileHandle.standardError.write(Data("kbglow: set needs a value between 0 and 100\n".utf8))
         exit(1)
     }
-    guard let bl = Backlight() else {
+    guard let bl = KeyboardBacklight() else {
         FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
         exit(1)
     }
     bl.brightness = value
 
 case "get":
-    guard let bl = Backlight() else {
+    guard let bl = KeyboardBacklight() else {
         FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
         exit(1)
     }
     print(Int((bl.brightness * 100).rounded()))
 
 case "on", "off":
-    guard let bl = Backlight() else {
+    guard let bl = KeyboardBacklight() else {
         FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
         exit(1)
     }

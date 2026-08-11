@@ -1,6 +1,6 @@
 {
   "name": "kbglow",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Your Mac's keyboard backlight blinks while your AI agent (e.g. Claude Code) is waiting for approval",
   "license": "MIT",
   "author": "totota-08",
