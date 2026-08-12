@@ -16,7 +16,7 @@ private let statePath = "/tmp/kbglow.state"
 /// would "save" a broken state and restoring would wreck the user's settings.
 /// The file always holds the state from before the *first* session, survives
 /// takeovers and crashes, and is removed once it has been restored.
-/// (kbdlight's `withManualControl` restores in-process; the file covers the
+/// (BacklightKit's `withManualControl` restores in-process; the file covers the
 /// cross-process handoffs it cannot see.)
 final class Session {
     let backlight: KeyboardBacklight
