@@ -66,6 +66,7 @@ kbglow pulse            明滅開始(承認待ちアラート用)
     --min / --max <0-100> 明滅の下限・上限
 kbglow watch            GUIアプリの通知で明滅(フォアグラウンド)
     --app <bundle-id>     監視対象アプリ。複数指定可
+    -t, --timeout <秒>    通知1件あたりの最大点滅時間(デフォルト 120)
 kbglow stop             実行中の pulse を止めて元の状態に戻す
 
 kbglow-setup                 検出した AI CLI をまとめて(再)配線
@@ -86,7 +87,7 @@ kbglow-setup --watch-remove  ウォッチャーを解除
 
 ## 仕組み
 
-バックライト制御は [kbdlight](https://github.com/totota-08/kbdlight) 製(プライベートフレームワーク `CoreBrightness` を実行時に読み込み — 将来の macOS で動かなくなる可能性があります)。GUIアプリ用ウォッチャーは通知センターのDBを読むため、フルディスクアクセスが必要です。
+バックライト制御は [BacklightKit](https://github.com/totota-08/BacklightKit) 製(プライベートフレームワーク `CoreBrightness` を実行時に読み込み — 将来の macOS で動かなくなる可能性があります)。GUIアプリ用ウォッチャーは通知センターのDBを読むため、フルディスクアクセスが必要です。
 
 ## トラブルシューティング
 

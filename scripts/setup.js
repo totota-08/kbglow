@@ -291,6 +291,8 @@ function configureAdapters(done, remove) {
   return wired;
 }
 
+const WATCH_LOG = '/tmp/kbglow.watch.log';
+
 const codexConfigPath = path.join(os.homedir(), '.codex', 'config.toml');
 
 /// Wire the turn-complete blink into Codex CLI via its `notify` option
@@ -377,7 +379,6 @@ function guideFullDiskAccess() {
   console.log(`kbglow: so finishing the steps above later is fine (log: ${WATCH_LOG})`);
 }
 
-const WATCH_LOG = '/tmp/kbglow.watch.log';
 
 function installWatchAgent() {
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -393,7 +394,7 @@ function installWatchAgent() {
 	<key>RunAtLoad</key><true/>
 	<key>KeepAlive</key><true/>
 	<key>ThrottleInterval</key><integer>30</integer>
-	<key>StandardErrorPath</key><string>/tmp/kbglow.watch.log</string>
+	<key>StandardErrorPath</key><string>${WATCH_LOG}</string>
 </dict>
 </plist>
 `;

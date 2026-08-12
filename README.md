@@ -66,6 +66,7 @@ kbglow pulse            Blink until stopped (the approval alert)
     --min / --max <0-100> Low / high point of the cycle
 kbglow watch            Blink on GUI-app notifications (foreground)
     --app <bundle-id>     App to watch, repeatable
+    -t, --timeout <sec>   Max blink per notification (default 120)
 kbglow stop             Stop a running pulse, restore previous state
 
 kbglow-setup                 (Re)wire every detected AI CLI
@@ -86,7 +87,7 @@ kbglow-setup --watch-remove  Remove the watcher
 
 ## Under the hood
 
-Backlight control comes from [kbdlight](https://github.com/totota-08/kbdlight) (the private `CoreBrightness` framework, loaded at runtime — may break in a future macOS). The GUI-app watcher reads the Notification Center database, which is why it needs Full Disk Access.
+Backlight control comes from [BacklightKit](https://github.com/totota-08/BacklightKit) (the private `CoreBrightness` framework, loaded at runtime — may break in a future macOS). The GUI-app watcher reads the Notification Center database, which is why it needs Full Disk Access.
 
 ## Troubleshooting
 
