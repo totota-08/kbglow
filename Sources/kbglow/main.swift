@@ -1,7 +1,7 @@
 import BacklightKit
 import Foundation
 
-let version = "0.6.1"
+let version = "0.7.0"
 
 let usage = """
 kbglow \(version) — your keyboard glows while your AI waits for approval
