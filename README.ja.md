@@ -57,6 +57,23 @@ kbglow-setup --done-remove    # 承認待ちのみに戻す
 
 ([Codex CLI](https://developers.openai.com/codex) は `~/.codex/config.toml` の公式 `notify` オプション(`agent-turn-complete` で発火)を使います。既に notify を設定済みの場合は触りません。)
 
+## その他の AI CLI
+
+`kbglow-setup` はインストール済みの AI CLI を自動検出し、それぞれが公開しているシグナルに応じて自動配線します。既存の設定は保持され、`kbglow-setup --remove` で痕跡ごと全部消えます:
+
+| CLI | 承認待ちで点滅 | ターン終了で消灯/完了点滅 |
+|---|---|---|
+| Claude Code | ✓ | ✓ |
+| Gemini CLI | ✓ | ✓ |
+| Qwen Code | ✓ | ✓ |
+| GitHub Copilot CLI | ✓ | ✓ |
+| Factory Droid | ✓ | ✓ |
+| opencode | ✓ | ✓ |
+| Cursor CLI | —(承認イベントなし) | ✓ |
+| Codex CLI | —(ターミナル通知のみ) | ✓(`--done`) |
+
+Aider / Goose / Amp は未対応です(設定枠が1つしかない・コードプラグイン必須などの理由)。PR歓迎。
+
 ## Claude デスクトップ / ChatGPT アプリ(GUIアプリ)
 
 GUIアプリにはフック機構がないため、kbglow は代わりに **macOS の通知センターを監視**します。Claude デスクトップや ChatGPT アプリが通知を出したら(タスク完了・要対応など)キーボードが明滅し、**そのアプリにフォーカスを移すと消灯**します。セットアップ:
