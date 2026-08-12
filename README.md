@@ -94,10 +94,6 @@ Backlight control comes from [kbdlight](https://github.com/totota-08/kbdlight) (
 - Brightness changes on its own — macOS auto-brightness; kbglow disables it during a pulse and restores it afterwards
 - Watcher not blinking — check `/tmp/kbglow.watch.log`; it usually means Full Disk Access is missing
 
-## Development & releasing
-
-Day-to-day changes land on the `develop` branch (the default). To ship a release, go to **Actions → release → Run workflow**, pick a version bump (patch / minor / major) and optionally a release title — the workflow bumps the version, merges `develop` into `main`, publishes to npm, and creates a GitHub release.
-
 ## License
 
 MIT

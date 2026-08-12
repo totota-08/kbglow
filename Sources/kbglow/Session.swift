@@ -1,5 +1,5 @@
+import BacklightKit
 import Foundation
-import MacKeyboardBacklight
 
 /// Set to 1 by signal handlers; long-running loops poll this and exit cleanly.
 nonisolated(unsafe) var gStop: sig_atomic_t = 0
@@ -25,11 +25,13 @@ final class Session {
     private var finished = false
 
     init?() {
-        guard let bl = KeyboardBacklight() else {
-            FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
+        do {
+            backlight = try KeyboardBacklight.discover()
+        } catch {
+            FileHandle.standardError.write(Data("kbglow: \(error.localizedDescription)\n".utf8))
             return nil
         }
-        backlight = bl
+        let bl = backlight
 
         Session.killExisting()
         try? String(ProcessInfo.processInfo.processIdentifier).write(
@@ -96,7 +98,7 @@ final class Session {
     static func stopAndRestore() {
         killExisting()
         guard let (b, auto) = readState() else { return }
-        if let bl = KeyboardBacklight() {
+        if let bl = try? KeyboardBacklight.discover() {
             bl.brightness = b
             bl.autoBrightness = auto
         }

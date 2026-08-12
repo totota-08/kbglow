@@ -94,10 +94,6 @@ kbglow-setup --watch-remove  ウォッチャーを解除
 - 明るさが勝手に変わる — macOS の自動調光と競合している場合、pulse 実行中は自動調光を一時無効化し、終了時に復元します
 - ウォッチャーが光らない — `/tmp/kbglow.watch.log` を確認。大抵はフルディスクアクセス未付与です
 
-## 開発とリリース
-
-普段の変更は `develop` ブランチ(デフォルト)に入れます。リリースするときは **Actions → release → Run workflow** でバージョンの上げ幅(patch / minor / major)と、必要ならリリースタイトルを選ぶだけ。ワークフローがバージョンを上げ、`develop` を `main` にマージし、npm へ publish して、GitHub Release を作成します。
-
 ## License
 
 MIT

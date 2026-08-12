@@ -1,5 +1,14 @@
+import BacklightKit
 import Foundation
-import MacKeyboardBacklight
+
+func discoverOrExit() -> KeyboardBacklight {
+    do {
+        return try KeyboardBacklight.discover()
+    } catch {
+        FileHandle.standardError.write(Data("kbglow: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
 
 let version = "0.6.1"
 
@@ -57,25 +66,16 @@ case "set":
         FileHandle.standardError.write(Data("kbglow: set needs a value between 0 and 100\n".utf8))
         exit(1)
     }
-    guard let bl = KeyboardBacklight() else {
-        FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
-        exit(1)
-    }
-    bl.brightness = value
+    let bl = discoverOrExit()
+bl.brightness = value
 
 case "get":
-    guard let bl = KeyboardBacklight() else {
-        FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
-        exit(1)
-    }
-    print(Int((bl.brightness * 100).rounded()))
+    let bl = discoverOrExit()
+print(Int((bl.brightness * 100).rounded()))
 
 case "on", "off":
-    guard let bl = KeyboardBacklight() else {
-        FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
-        exit(1)
-    }
-    bl.brightness = command == "on" ? 1 : 0
+    let bl = discoverOrExit()
+bl.brightness = command == "on" ? 1 : 0
 
 case "pulse":
     let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 600
