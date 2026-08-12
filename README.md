@@ -4,7 +4,7 @@
 
 [日本語版 README はこちら](README.ja.md)
 
-When an agent like Claude Code stops and asks for permission, your Mac's keyboard backlight starts blinking — so you notice from the corner of your eye, even with notification sounds off or another window in front.
+When an agent like Claude Code stops and asks for permission, your Mac's keyboard backlight starts blinking — so you notice from the corner of your eye, even with notification sounds off or another window in front. Answer it (or focus the app) and the light goes back to normal.
 
 Zero dependencies, single Swift binary, macOS only.
 
@@ -14,13 +14,14 @@ Zero dependencies, single Swift binary, macOS only.
 npm install -g kbglow
 ```
 
-That's it. The install automatically wires kbglow into Claude Code's hooks (`~/.claude/settings.json`), so the very next approval prompt makes your keyboard blink. A backup of your previous settings is saved as `settings.json.kbglow-bak`, and you can undo everything with:
+That's it. The installer detects the AI CLIs on your machine and wires them all up automatically. Your existing settings are preserved (with a backup), and `kbglow-setup --remove` undoes everything.
+
+Optional extras:
 
 ```sh
-kbglow-setup --remove
+kbglow-setup --done     # short fast blink when a turn completes, too
+kbglow-setup --watch    # GUI apps (Claude Desktop / ChatGPT) — guided setup
 ```
-
-If the automatic setup was skipped (e.g. permissions), run `kbglow-setup` manually.
 
 <details>
 <summary>Install from source instead (no npm)</summary>
@@ -31,63 +32,26 @@ cd kbglow
 make install        # installs to ~/.local/bin/kbglow
 ```
 
-Then add the hooks from `examples/claude-code-hooks.json` to `~/.claude/settings.json` yourself.
+Wire hooks up yourself — `examples/claude-code-hooks.json` is a template.
 
 </details>
 
-## Requirements
-
-- **macOS only.** kbglow drives the keyboard backlight through Apple's private CoreBrightness framework — there is nothing for it to do on Windows or Linux.
-- A Mac with a backlit keyboard (MacBook Air / Pro).
-- **Honest hardware note:** the only machine I own is an M1 MacBook Air, so that is the only hardware kbglow is actually verified on. It is built as a universal binary and should work on Intel and newer Apple Silicon Macs, but I cannot test those — reports (good or bad) are very welcome.
-
-## How it works with Claude Code
-
-- The **Notification** hook (approval / input needed) starts `kbglow pulse` → the keyboard begins blinking
-- Approving a tool (**PostToolUse**), sending a prompt (**UserPromptSubmit**), or the turn ending (**Stop**) runs `kbglow stop` → blinking stops and the previous brightness is restored
-
-Any other agent that can run a shell command while waiting for approval can do the same — just call `kbglow pulse`.
-
-Want a short fast blink when a turn **completes**, too? It's opt-in:
-
-```sh
-kbglow-setup --done           # Claude Code Stop hook + Codex CLI notify
-kbglow-setup --done-remove    # back to approval-only
-```
-
-(For [Codex CLI](https://developers.openai.com/codex) this uses the official `notify` option in `~/.codex/config.toml`, which fires on `agent-turn-complete`. If you already have a `notify` configured, kbglow leaves it untouched.)
-
-## Other AI CLIs
-
-`kbglow-setup` auto-detects the AI CLIs installed on your machine and wires up whichever signals each one exposes — existing settings are preserved, and `kbglow-setup --remove` cleans every trace:
+## Supported AI tools
 
 | CLI | blink on approval-wait | stop / done-blink on turn end |
 |---|---|---|
-| Claude Code | ✓ | ✓ |
-| Gemini CLI | ✓ | ✓ |
-| Qwen Code | ✓ | ✓ |
-| GitHub Copilot CLI | ✓ | ✓ |
-| Factory Droid | ✓ | ✓ |
-| opencode | ✓ | ✓ |
-| Cursor CLI | — (no approval event) | ✓ |
-| Codex CLI | — (terminal-notification only) | ✓ (`--done`) |
+| <img src="https://github.com/anthropics.png?size=32" width="16" alt=""> Claude Code | ✓ | ✓ |
+| <img src="https://github.com/google-gemini.png?size=32" width="16" alt=""> Gemini CLI | ✓ | ✓ |
+| <img src="https://github.com/QwenLM.png?size=32" width="16" alt=""> Qwen Code | ✓ | ✓ |
+| <img src="https://github.com/github.png?size=32" width="16" alt=""> GitHub Copilot CLI | ✓ | ✓ |
+| <img src="https://github.com/Factory-AI.png?size=32" width="16" alt=""> Factory Droid | ✓ | ✓ |
+| <img src="https://github.com/anomalyco.png?size=32" width="16" alt=""> opencode | ✓ | ✓ |
+| <img src="https://github.com/cursor.png?size=32" width="16" alt=""> Cursor CLI | — (no approval event) | ✓ |
+| <img src="https://github.com/openai.png?size=32" width="16" alt=""> Codex CLI | — (terminal-notification only) | ✓ (`--done`) |
 
-Aider, Goose, and Amp aren't wired yet (single-slot or code-plugin-only mechanisms) — PRs welcome.
+Each CLI is wired through its own official hook/notify mechanism — no polling, no wrappers. Aider, Goose, and Amp aren't wired yet; PRs welcome.
 
-## Claude Desktop / ChatGPT app (GUI apps)
-
-GUI apps have no hook system, so kbglow watches the macOS Notification Center instead: whenever Claude Desktop or the ChatGPT app posts a notification (task finished, needs your attention), the keyboard starts blinking — and stops the moment you bring that app to the front. Set it up with:
-
-```sh
-kbglow-setup --watch
-```
-
-This installs a login agent that runs `kbglow watch` in the background, then walks you through the **one step macOS reserves for humans**: granting Full Disk Access (needed to read the Notification Center database). The command opens Finder with the binary pre-selected and the Full Disk Access pane side by side — drag the file into the list, flip the toggle, and the command confirms the moment it starts working. Notes:
-
-- macOS writes notifications to the database lazily, so the blink starts ~5–10 seconds after the notification appears
-- The Full Disk Access grant is tied to the binary's code signature, so **after updating kbglow (`npm install -g kbglow`) you must remove and re-add it** in the Full Disk Access list
-- It blinks for whatever these apps choose to notify about; in-app approval dialogs that post no notification cannot be detected
-- Watch other apps with `kbglow watch --app <bundle-id>`; undo with `kbglow-setup --watch-remove`
+**GUI apps** (Claude Desktop, the ChatGPT app) have no hooks, so `kbglow-setup --watch` installs a background watcher that blinks when they post a notification and stops when you focus the app. It walks you through the one manual step (granting Full Disk Access) and confirms when it works. Two caveats: the blink starts ~5–10s after the notification (macOS writes them lazily), and after updating kbglow the grant must be re-added (it is tied to the binary's signature — the updater reminds you).
 
 ## CLI usage
 
@@ -100,33 +64,39 @@ kbglow pulse            Blink until stopped (the approval alert)
     -t, --timeout <sec>   Auto-stop after N seconds (default 600)
     --period <sec>        Cycle length (default 1.6)
     --min / --max <0-100> Low / high point of the cycle
-kbglow watch            Blink on notifications from GUI AI apps (foreground;
-    --app <bundle-id>     app to watch, repeatable; default: Claude Desktop
-                          + ChatGPT)
-    -t, --timeout <sec>   Max blink per notification (default 120)
+kbglow watch            Blink on GUI-app notifications (foreground)
+    --app <bundle-id>     App to watch, repeatable
 kbglow stop             Stop a running pulse, restore previous state
-kbglow-setup                 (Re)install the Claude Code hooks
-kbglow-setup --remove        Remove every kbglow hook (Claude Code + Codex)
+
+kbglow-setup                 (Re)wire every detected AI CLI
+kbglow-setup --remove        Remove every kbglow hook and generated file
 kbglow-setup --done          Also blink briefly when a turn completes
 kbglow-setup --done-remove   Approval-only blinking again
-kbglow-setup --watch         Install the background watcher (launchd)
-kbglow-setup --watch-remove  Remove the background watcher
+kbglow-setup --watch         Install the GUI-app watcher (guided)
+kbglow-setup --watch-remove  Remove the watcher
 ```
 
-`pulse` restores the previous brightness and auto-brightness setting on exit. Only one session runs at a time; starting a new one replaces the old.
+`pulse` restores the previous brightness and auto-brightness setting on exit. Only one session runs at a time; starting a new one replaces the old. Any agent that can run a shell command can integrate manually — call `kbglow pulse` and `kbglow stop`.
+
+## Requirements
+
+- **macOS only.** kbglow drives the keyboard backlight through Apple's private CoreBrightness framework — there is nothing for it to do on Windows or Linux.
+- A Mac with a backlit keyboard (MacBook Air / Pro).
+- **Honest hardware note:** the only machine I own is an M1 MacBook Air, so that is the only hardware kbglow is actually verified on. It is built as a universal binary and should work on Intel and newer Apple Silicon Macs, but I cannot test those — reports (good or bad) are very welcome.
 
 ## Under the hood
 
-Backlight control uses the private `CoreBrightness` framework (`KeyboardBrightnessClient`), loaded at runtime. Being a private API, it may break in a future macOS release.
+Backlight control comes from [kbdlight](https://github.com/totota-08/kbdlight) (the private `CoreBrightness` framework, loaded at runtime — may break in a future macOS). The GUI-app watcher reads the Notification Center database, which is why it needs Full Disk Access.
 
 ## Troubleshooting
 
 - `no controllable keyboard backlight found` — this Mac has no controllable backlight (or only an external keyboard)
 - Brightness changes on its own — macOS auto-brightness; kbglow disables it during a pulse and restores it afterwards
+- Watcher not blinking — check `/tmp/kbglow.watch.log`; it usually means Full Disk Access is missing
 
 ## Development & releasing
 
-Day-to-day changes land on the `develop` branch (the default). To ship a release, go to **Actions → release → Run workflow**, pick a version bump (patch / minor / major) and optionally a release title — the workflow bumps the version, merges `develop` into `main`, publishes to npm, and creates a GitHub release with that title (default: the latest commit message on `develop`).
+Day-to-day changes land on the `develop` branch (the default). To ship a release, go to **Actions → release → Run workflow**, pick a version bump (patch / minor / major) and optionally a release title — the workflow bumps the version, merges `develop` into `main`, publishes to npm, and creates a GitHub release.
 
 ## License
 
