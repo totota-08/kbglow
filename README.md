@@ -57,6 +57,23 @@ kbglow-setup --done-remove    # back to approval-only
 
 (For [Codex CLI](https://developers.openai.com/codex) this uses the official `notify` option in `~/.codex/config.toml`, which fires on `agent-turn-complete`. If you already have a `notify` configured, kbglow leaves it untouched.)
 
+## Other AI CLIs
+
+`kbglow-setup` auto-detects the AI CLIs installed on your machine and wires up whichever signals each one exposes — existing settings are preserved, and `kbglow-setup --remove` cleans every trace:
+
+| CLI | blink on approval-wait | stop / done-blink on turn end |
+|---|---|---|
+| Claude Code | ✓ | ✓ |
+| Gemini CLI | ✓ | ✓ |
+| Qwen Code | ✓ | ✓ |
+| GitHub Copilot CLI | ✓ | ✓ |
+| Factory Droid | ✓ | ✓ |
+| opencode | ✓ | ✓ |
+| Cursor CLI | — (no approval event) | ✓ |
+| Codex CLI | — (terminal-notification only) | ✓ (`--done`) |
+
+Aider, Goose, and Amp aren't wired yet (single-slot or code-plugin-only mechanisms) — PRs welcome.
+
 ## Claude Desktop / ChatGPT app (GUI apps)
 
 GUI apps have no hook system, so kbglow watches the macOS Notification Center instead: whenever Claude Desktop or the ChatGPT app posts a notification (task finished, needs your attention), the keyboard starts blinking — and stops the moment you bring that app to the front. Set it up with:
