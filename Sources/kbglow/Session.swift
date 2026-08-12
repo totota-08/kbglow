@@ -20,8 +20,9 @@ func discoverOrExit() -> KeyboardBacklight {
     }
 }
 
-private let pidPath = "/tmp/kbglow.pid"
-private let statePath = "/tmp/kbglow.state"
+// Per-uid so two users on one Mac never fight over each other's files.
+private let pidPath = "/tmp/kbglow.\(getuid()).pid"
+private let statePath = "/tmp/kbglow.\(getuid()).state"
 
 /// A long-running lighting session (pulse). Ensures only one instance
 /// runs at a time, and restores the original backlight state on exit.
@@ -91,21 +92,42 @@ final class Session {
             toFile: statePath, atomically: true, encoding: .utf8)
     }
 
+    /// True when `pid` is a live process actually running a kbglow binary.
+    /// A stale pid file can point at a recycled pid belonging to some
+    /// innocent app — never signal without this check.
+    static func isKbglowProcess(_ pid: Int32) -> Bool {
+        guard kill(pid, 0) == 0 else { return false }
+        var buf = [CChar](repeating: 0, count: 4 * 1024)
+        guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { return false }
+        return String(cString: buf).contains("kbglow")
+    }
+
     /// Ask any running kbglow session to stop (it restores brightness itself).
     static func killExisting() {
         guard let pid = readPid(), pid != ProcessInfo.processInfo.processIdentifier else { return }
-        if kill(pid, SIGTERM) == 0 {
+        if isKbglowProcess(pid), kill(pid, SIGTERM) == 0 {
             // Give it a moment to restore state and remove the pid file.
             for _ in 0..<20 where kill(pid, 0) == 0 { usleep(25_000) }
         }
-        try? FileManager.default.removeItem(atPath: pidPath)
+        // Compare-and-delete: a session that started while we were waiting
+        // owns the pid file now — deleting it would orphan that session.
+        if readPid() == pid {
+            try? FileManager.default.removeItem(atPath: pidPath)
+        }
     }
 
     /// `kbglow stop`: stop a running session, and if a state file is still
     /// around afterwards (the session crashed or was SIGKILLed before it
     /// could restore), restore the original state from the file.
     static func stopAndRestore() {
-        killExisting()
+        // A session starting concurrently can replace the one we just killed;
+        // keep going until none is left (bounded — this converges immediately
+        // outside pathological loops).
+        for _ in 0..<3 {
+            killExisting()
+            guard let pid = readPid(), isKbglowProcess(pid) else { break }
+        }
+        if let pid = readPid(), isKbglowProcess(pid) { return } // it will restore itself
         guard let (b, auto) = readState() else { return }
         if let bl = try? KeyboardBacklight.discover() {
             bl.brightness = b

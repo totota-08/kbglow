@@ -3,6 +3,9 @@ name: release
 # The release button: Actions > release > Run workflow.
 # Bumps the version on develop, merges develop into main, publishes to npm,
 # and creates a GitHub release — all in one go.
+concurrency:
+  group: kbglow-release
+
 on:
   workflow_dispatch:
     inputs:
@@ -49,7 +52,6 @@ jobs:
           sed -i '' "s/^let version = \".*\"/let version = \"$V\"/" Sources/kbglow/main.swift
           git add package.json Sources/kbglow/main.swift
           git commit -m "v$V"
-          git push origin develop
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "title=$TITLE" >> "$GITHUB_OUTPUT"
 
@@ -57,10 +59,13 @@ jobs:
         env:
           TITLE: ${{ steps.bump.outputs.title }}
         run: |
+          # Merge first, push both refs only after it succeeds — a conflict
+          # with a diverged main must not leave a half-done release behind.
           git fetch origin main
           git checkout -B main origin/main
           git merge --no-ff develop -m "$TITLE"
           git push origin main
+          git push origin develop
 
       - name: Publish to npm
         run: npm publish --provenance --access public

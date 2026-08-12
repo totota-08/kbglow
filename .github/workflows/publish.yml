@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+# Never race the release-button workflow (they share the publish step).
+concurrency:
+  group: kbglow-release
+
 jobs:
   publish:
     runs-on: macos-latest
@@ -42,4 +46,6 @@ jobs:
         run: |
           V=$(node -p "require('./package.json').version")
           TITLE=$(git log -1 --pretty=%s)
-          gh release create "v$V" --title "$TITLE" --generate-notes
+          # --target: without it gh tags the DEFAULT branch (develop), not the
+          # main commit this run actually published.
+          gh release create "v$V" --target "$GITHUB_SHA" --title "$TITLE" --generate-notes
