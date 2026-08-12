@@ -37,8 +37,9 @@ Then add the hooks from `examples/claude-code-hooks.json` to `~/.claude/settings
 
 ## Requirements
 
-- A Mac with a backlit keyboard (MacBook Air / Pro)
-- Apple Silicon or Intel (tested on M1 MacBook Air)
+- **macOS only.** kbglow drives the keyboard backlight through Apple's private CoreBrightness framework — there is nothing for it to do on Windows or Linux.
+- A Mac with a backlit keyboard (MacBook Air / Pro).
+- **Honest hardware note:** the only machine I own is an M1 MacBook Air, so that is the only hardware kbglow is actually verified on. It is built as a universal binary and should work on Intel and newer Apple Silicon Macs, but I cannot test those — reports (good or bad) are very welcome.
 
 ## How it works with Claude Code
 
@@ -46,6 +47,15 @@ Then add the hooks from `examples/claude-code-hooks.json` to `~/.claude/settings
 - Approving a tool (**PostToolUse**), sending a prompt (**UserPromptSubmit**), or the turn ending (**Stop**) runs `kbglow stop` → blinking stops and the previous brightness is restored
 
 Any other agent that can run a shell command while waiting for approval can do the same — just call `kbglow pulse`.
+
+Want a short fast blink when a turn **completes**, too? It's opt-in:
+
+```sh
+kbglow-setup --done           # Claude Code Stop hook + Codex CLI notify
+kbglow-setup --done-remove    # back to approval-only
+```
+
+(For [Codex CLI](https://developers.openai.com/codex) this uses the official `notify` option in `~/.codex/config.toml`, which fires on `agent-turn-complete`. If you already have a `notify` configured, kbglow leaves it untouched.)
 
 ## Claude Desktop / ChatGPT app (GUI apps)
 
@@ -79,7 +89,9 @@ kbglow watch            Blink on notifications from GUI AI apps (foreground;
     -t, --timeout <sec>   Max blink per notification (default 120)
 kbglow stop             Stop a running pulse, restore previous state
 kbglow-setup                 (Re)install the Claude Code hooks
-kbglow-setup --remove        Remove the Claude Code hooks
+kbglow-setup --remove        Remove every kbglow hook (Claude Code + Codex)
+kbglow-setup --done          Also blink briefly when a turn completes
+kbglow-setup --done-remove   Approval-only blinking again
 kbglow-setup --watch         Install the background watcher (launchd)
 kbglow-setup --watch-remove  Remove the background watcher
 ```

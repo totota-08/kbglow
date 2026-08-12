@@ -3,7 +3,10 @@
 // keyboard blinks while Claude is waiting for approval.
 //
 //   kbglow-setup                 add/update the hooks
-//   kbglow-setup --remove        remove every kbglow hook
+//   kbglow-setup --remove        remove every kbglow hook (Claude Code + Codex)
+//   kbglow-setup --done          also blink briefly when a turn COMPLETES
+//                                (Claude Code Stop hook + Codex CLI notify)
+//   kbglow-setup --done-remove   back to approval-only blinking
 //   kbglow-setup --watch         install a launchd agent running `kbglow watch`
 //                                (blink on Claude Desktop / ChatGPT notifications;
 //                                needs Full Disk Access for the kbglow binary)
@@ -20,6 +23,8 @@ const { execSync } = require('child_process');
 
 const POSTINSTALL = process.argv.includes('--postinstall');
 const REMOVE = process.argv.includes('--remove');
+const DONE = process.argv.includes('--done');
+const DONE_REMOVE = process.argv.includes('--done-remove');
 const WATCH = process.argv.includes('--watch');
 const WATCH_REMOVE = process.argv.includes('--watch-remove');
 
@@ -31,12 +36,18 @@ const binPath = path.join(__dirname, '..', 'bin', 'kbglow');
 // the blink to actual permission requests (hook JSON arrives on stdin).
 const PULSE = `grep -qi permission && (${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
 const STOP = `${binPath} stop >/dev/null 2>&1 || true`;
-const EVENTS = {
-  Notification: PULSE,
-  PostToolUse: STOP,
-  UserPromptSubmit: STOP,
-  Stop: STOP,
-};
+// Short fast double-blink for "the turn finished" (opt-in: kbglow-setup --done).
+const DONE_BLINK = `(${binPath} pulse --blink --period 0.6 -t 2.4 >/dev/null 2>&1 &) || true`;
+const STOP_THEN_DONE = `${binPath} stop >/dev/null 2>&1; ${DONE_BLINK}`;
+
+function events(done) {
+  return {
+    Notification: PULSE,
+    PostToolUse: STOP,
+    UserPromptSubmit: STOP,
+    Stop: done ? STOP_THEN_DONE : STOP,
+  };
+}
 
 function isKbglow(hook) {
   return hook && typeof hook.command === 'string' && hook.command.includes('kbglow');
@@ -65,7 +76,10 @@ function main() {
   }
 
   const hooks = settings.hooks || {};
-  for (const [event, command] of Object.entries(EVENTS)) {
+  // Keep done-mode sticky across plain re-runs unless explicitly toggled.
+  const hadDone = JSON.stringify(hooks.Stop || []).includes('pulse');
+  const done = DONE ? true : DONE_REMOVE ? false : hadDone;
+  for (const [event, command] of Object.entries(events(done))) {
     const kept = stripKbglow(hooks[event]);
     if (!REMOVE) kept.push({ hooks: [{ type: 'command', command }] });
     if (kept.length > 0) hooks[event] = kept;
@@ -84,6 +98,11 @@ function main() {
     console.log('kbglow: your keyboard now blinks while Claude waits for approval');
     console.log('kbglow: (undo anytime with: kbglow-setup --remove)');
     console.log('kbglow: GUI apps too (Claude Desktop / ChatGPT)? run: kbglow-setup --watch');
+    if (done) {
+      console.log('kbglow: turn-complete blink is ON (off with: kbglow-setup --done-remove)');
+    } else if (!POSTINSTALL) {
+      console.log('kbglow: want a short blink when a turn completes too? kbglow-setup --done');
+    }
   }
   if (backedUp) {
     console.log(`kbglow: previous settings backed up to ${settingsPath}.kbglow-bak`);
@@ -94,6 +113,43 @@ function main() {
     console.warn('kbglow: NOTE — the update replaced the kbglow binary, so the watch');
     console.warn('kbglow: agent lost its Full Disk Access grant. Run "kbglow-setup --watch"');
     console.warn('kbglow: to re-grant it (guided).');
+  }
+}
+
+const codexConfigPath = path.join(os.homedir(), '.codex', 'config.toml');
+
+/// Wire the turn-complete blink into Codex CLI via its `notify` option
+/// (fires on agent-turn-complete). Top-level TOML keys must sit before the
+/// first [table] header, so the entry is inserted, not appended.
+function configureCodex(enable) {
+  if (!fs.existsSync(path.dirname(codexConfigPath))) {
+    if (enable) console.log('kbglow: Codex CLI not found (~/.codex) — skipped');
+    return;
+  }
+  let text = '';
+  try {
+    text = fs.readFileSync(codexConfigPath, 'utf8');
+  } catch (e) {
+    /* no config yet — we'll create one */
+  }
+  const lines = text.split('\n').filter((l) => !l.includes('kbglow'));
+  if (enable) {
+    if (lines.some((l) => /^\s*notify\s*=/.test(l))) {
+      console.warn('kbglow: ~/.codex/config.toml already defines notify — left untouched');
+      return;
+    }
+    const entry = [
+      '# kbglow: blink when a Codex turn completes (kbglow-setup --done)',
+      `notify = ["sh", "-c", "(${binPath} pulse --blink --period 0.6 -t 2.4 >/dev/null 2>&1 &) || true # kbglow"]`,
+    ];
+    let at = lines.findIndex((l) => l.trim().startsWith('['));
+    if (at === -1) at = lines.length;
+    lines.splice(at, 0, ...entry);
+    fs.writeFileSync(codexConfigPath, lines.join('\n'));
+    console.log('kbglow: Codex CLI turn-complete blink configured (~/.codex/config.toml)');
+  } else if (text.includes('kbglow')) {
+    fs.writeFileSync(codexConfigPath, lines.join('\n'));
+    console.log('kbglow: removed the Codex CLI notify entry');
   }
 }
 
@@ -198,6 +254,7 @@ try {
     removeWatchAgent();
   } else {
     main();
+    if (DONE || DONE_REMOVE || REMOVE) configureCodex(DONE);
   }
 } catch (e) {
   if (POSTINSTALL) {
