@@ -114,6 +114,181 @@ function main() {
     console.warn('kbglow: agent lost its Full Disk Access grant. Run "kbglow-setup --watch"');
     console.warn('kbglow: to re-grant it (guided).');
   }
+  return done;
+}
+
+// ---------------------------------------------------------------------------
+// Other AI CLIs. Each adapter detects its CLI by config dir and wires the
+// same two signals: approval-wait -> slow pulse, turn-complete -> stop
+// (+ short fast blink in done mode). All writes are idempotent: existing
+// kbglow entries are stripped and re-added, other config is preserved.
+// ---------------------------------------------------------------------------
+
+const APPROVAL_PULSE = `(${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
+
+function home(...p) {
+  return path.join(os.homedir(), ...p);
+}
+
+function readJSON(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    if (fs.existsSync(file)) throw new Error(`${file} is not valid JSON — fix it first`);
+    return {};
+  }
+}
+
+function writeJSON(file, obj) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n');
+}
+
+// Claude-style hooks map: { Event: [ {hooks:[{type:'command',command}]} ] }.
+// `nested` wraps it under a top-level "hooks" key (Gemini/Qwen settings.json);
+// Factory's hooks.json has the events at the top level.
+function mergeHookEvents(file, eventCommands, { nested = true, remove = false } = {}) {
+  const root = readJSON(file);
+  const container = nested ? root.hooks || {} : root;
+  for (const [event, command] of Object.entries(eventCommands)) {
+    const kept = stripKbglow(container[event]);
+    if (!remove && command) kept.push({ hooks: [{ type: 'command', command }] });
+    if (kept.length > 0) container[event] = kept;
+    else delete container[event];
+  }
+  if (nested) {
+    if (Object.keys(container).length > 0) root.hooks = container;
+    else delete root.hooks;
+  }
+  writeJSON(file, root);
+}
+
+const ADAPTERS = [
+  {
+    name: 'Gemini CLI',
+    dir: home('.gemini'),
+    apply(done, remove) {
+      mergeHookEvents(home('.gemini', 'settings.json'), {
+        Notification: APPROVAL_PULSE,
+        AfterAgent: done ? STOP_THEN_DONE : STOP,
+      }, { remove });
+    },
+  },
+  {
+    name: 'Qwen Code',
+    dir: home('.qwen'),
+    apply(done, remove) {
+      mergeHookEvents(home('.qwen', 'settings.json'), {
+        PermissionRequest: APPROVAL_PULSE,
+        Stop: done ? STOP_THEN_DONE : STOP,
+      }, { remove });
+    },
+  },
+  {
+    name: 'Factory Droid',
+    dir: home('.factory'),
+    apply(done, remove) {
+      mergeHookEvents(home('.factory', 'hooks.json'), {
+        Notification: `grep -qi permission && ${APPROVAL_PULSE}`,
+        Stop: done ? STOP_THEN_DONE : STOP,
+      }, { nested: false, remove });
+    },
+  },
+  {
+    name: 'GitHub Copilot CLI',
+    dir: home('.copilot'),
+    apply(done, remove) {
+      // Copilot loads every *.json in ~/.copilot/hooks/ — we own our own file.
+      const file = home('.copilot', 'hooks', 'kbglow.json');
+      if (remove) {
+        try {
+          fs.unlinkSync(file);
+        } catch (e) {
+          /* already gone */
+        }
+        return;
+      }
+      writeJSON(file, {
+        version: 1,
+        hooks: {
+          permissionRequest: [{ type: 'command', bash: APPROVAL_PULSE, timeoutSec: 30 }],
+          agentStop: [{ type: 'command', bash: done ? STOP_THEN_DONE : STOP, timeoutSec: 30 }],
+        },
+      });
+    },
+  },
+  {
+    name: 'Cursor CLI',
+    dir: home('.cursor'),
+    apply(done, remove) {
+      // Cursor may exec the hook command without a shell, so it points at a
+      // small script of ours. Turn-complete only (no approval event).
+      const script = home('.cursor', 'kbglow-stop.sh');
+      const file = home('.cursor', 'hooks.json');
+      const root = readJSON(file);
+      root.version = root.version || 1;
+      root.hooks = root.hooks || {};
+      const kept = (root.hooks.stop || []).filter(
+        (h) => !(h && typeof h.command === 'string' && h.command.includes('kbglow')));
+      if (remove) {
+        try {
+          fs.unlinkSync(script);
+        } catch (e) {
+          /* already gone */
+        }
+      } else {
+        fs.writeFileSync(script, `#!/bin/sh\n${done ? STOP_THEN_DONE : STOP}\n`, { mode: 0o755 });
+        kept.push({ command: script });
+      }
+      if (kept.length > 0) root.hooks.stop = kept;
+      else delete root.hooks.stop;
+      writeJSON(file, root);
+    },
+  },
+  {
+    name: 'opencode',
+    dir: home('.config', 'opencode'),
+    apply(done, remove) {
+      const file = home('.config', 'opencode', 'plugins', 'kbglow.js');
+      if (remove) {
+        try {
+          fs.unlinkSync(file);
+        } catch (e) {
+          /* already gone */
+        }
+        return;
+      }
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, `// kbglow: blink while opencode waits for approval; stop when the turn ends.
+// Generated by kbglow-setup — safe to delete (or run: kbglow-setup --remove).
+const PULSE = ${JSON.stringify(APPROVAL_PULSE)}
+const STOP = ${JSON.stringify(done ? STOP_THEN_DONE : STOP)}
+export const KbglowPlugin = async ({ $ }) => ({
+  event: async ({ event }) => {
+    if (event.type === "permission.asked") await $\`sh -c \${PULSE}\`
+    if (event.type === "session.idle") await $\`sh -c \${STOP}\`
+  },
+})
+`);
+    },
+  },
+];
+
+function configureAdapters(done, remove) {
+  const wired = [];
+  for (const a of ADAPTERS) {
+    if (!fs.existsSync(a.dir)) continue;
+    try {
+      a.apply(done, remove);
+      wired.push(a.name);
+    } catch (e) {
+      console.warn(`kbglow: ${a.name}: skipped (${e.message})`);
+    }
+  }
+  if (wired.length > 0) {
+    console.log(`kbglow: ${remove ? 'removed from' : 'wired up'}: ${wired.join(', ')}`);
+  }
+  return wired;
 }
 
 const codexConfigPath = path.join(os.homedir(), '.codex', 'config.toml');
@@ -253,7 +428,8 @@ try {
   } else if (WATCH_REMOVE) {
     removeWatchAgent();
   } else {
-    main();
+    const done = main();
+    configureAdapters(done, REMOVE);
     if (DONE || DONE_REMOVE || REMOVE) configureCodex(DONE);
   }
 } catch (e) {
