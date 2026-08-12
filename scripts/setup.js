@@ -32,13 +32,17 @@ const settingsDir = path.join(os.homedir(), '.claude');
 const settingsPath = path.join(settingsDir, 'settings.json');
 const binPath = path.join(__dirname, '..', 'bin', 'kbglow');
 
-// The Notification hook also fires for "idle for 60s" nudges; the grep keeps
-// the blink to actual permission requests (hook JSON arrives on stdin).
-const PULSE = `grep -qi permission && (${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
+// The four command strings every integration is built from. (--blink is a
+// compatibility no-op since v0.7 but stays so old and new binaries interop.)
+const APPROVAL_PULSE = `(${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
 const STOP = `${binPath} stop >/dev/null 2>&1 || true`;
 // Short fast double-blink for "the turn finished" (opt-in: kbglow-setup --done).
 const DONE_BLINK = `(${binPath} pulse --blink --period 0.6 -t 2.4 >/dev/null 2>&1 &) || true`;
 const STOP_THEN_DONE = `${binPath} stop >/dev/null 2>&1; ${DONE_BLINK}`;
+// Claude Code / Factory Droid fire their Notification hook for more than
+// permission prompts; the grep keeps the blink to actual permission requests
+// (the hook's JSON payload arrives on stdin).
+const PULSE = `grep -qi permission && ${APPROVAL_PULSE}`;
 
 function events(done) {
   return {
@@ -62,34 +66,17 @@ function stripKbglow(groups) {
 }
 
 function main() {
-  let settings = {};
+  const settings = readJSON(settingsPath); // validates before we back up or write
   let backedUp = false;
   if (fs.existsSync(settingsPath)) {
-    const raw = fs.readFileSync(settingsPath, 'utf8');
-    try {
-      settings = JSON.parse(raw);
-    } catch (e) {
-      throw new Error(`${settingsPath} is not valid JSON — fix it and rerun kbglow-setup`);
-    }
-    fs.writeFileSync(settingsPath + '.kbglow-bak', raw);
+    fs.writeFileSync(settingsPath + '.kbglow-bak', fs.readFileSync(settingsPath));
     backedUp = true;
   }
 
-  const hooks = settings.hooks || {};
   // Keep done-mode sticky across plain re-runs unless explicitly toggled.
-  const hadDone = JSON.stringify(hooks.Stop || []).includes('pulse');
+  const hadDone = JSON.stringify((settings.hooks || {}).Stop || []).includes('pulse');
   const done = DONE ? true : DONE_REMOVE ? false : hadDone;
-  for (const [event, command] of Object.entries(events(done))) {
-    const kept = stripKbglow(hooks[event]);
-    if (!REMOVE) kept.push({ hooks: [{ type: 'command', command }] });
-    if (kept.length > 0) hooks[event] = kept;
-    else delete hooks[event];
-  }
-  if (Object.keys(hooks).length > 0) settings.hooks = hooks;
-  else delete settings.hooks;
-
-  fs.mkdirSync(settingsDir, { recursive: true });
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+  mergeHookEvents(settingsPath, events(done), { remove: REMOVE });
 
   if (REMOVE) {
     console.log(`kbglow: removed Claude Code hooks from ${settingsPath}`);
@@ -123,8 +110,6 @@ function main() {
 // (+ short fast blink in done mode). All writes are idempotent: existing
 // kbglow entries are stripped and re-added, other config is preserved.
 // ---------------------------------------------------------------------------
-
-const APPROVAL_PULSE = `(${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
 
 function home(...p) {
   return path.join(os.homedir(), ...p);
@@ -189,7 +174,7 @@ const ADAPTERS = [
     dir: home('.factory'),
     apply(done, remove) {
       mergeHookEvents(home('.factory', 'hooks.json'), {
-        Notification: `grep -qi permission && ${APPROVAL_PULSE}`,
+        Notification: PULSE,
         Stop: done ? STOP_THEN_DONE : STOP,
       }, { nested: false, remove });
     },
@@ -317,7 +302,7 @@ function configureCodex(enable) {
     }
     const entry = [
       '# kbglow: blink when a Codex turn completes (kbglow-setup --done)',
-      `notify = ["sh", "-c", "(${binPath} pulse --blink --period 0.6 -t 2.4 >/dev/null 2>&1 &) || true # kbglow"]`,
+      `notify = ["sh", "-c", "${DONE_BLINK} # kbglow"]`,
     ];
     let at = lines.findIndex((l) => l.trim().startsWith('['));
     if (at === -1) at = lines.length;

@@ -59,11 +59,9 @@ Each CLI is wired through its own official hook/notify mechanism — no polling,
 kbglow set <0-100>      Set brightness (percent)
 kbglow get              Print current brightness
 kbglow on / off         Full brightness / off
-kbglow pulse            Blink until stopped (the approval alert)
-    --blink               Hard 0/100 blinking instead of breathing
+kbglow pulse            Blink hard on/off until stopped (the approval alert)
     -t, --timeout <sec>   Auto-stop after N seconds (default 600)
     --period <sec>        Cycle length (default 1.6)
-    --min / --max <0-100> Low / high point of the cycle
 kbglow watch            Blink on GUI-app notifications (foreground)
     --app <bundle-id>     App to watch, repeatable
     -t, --timeout <sec>   Max blink per notification (default 120)

@@ -43,10 +43,10 @@ enum Watch {
             if blinking, let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
                folded.contains(front.lowercased()) {
                 blinking = false
-                runSelf(["stop"])
+                Session.stopAndRestore()
             }
         }
-        if blinking { runSelf(["stop"]) }
+        if blinking { Session.stopAndRestore() }
     }
 
     /// First successful read of the DB. Without Full Disk Access the open
@@ -109,8 +109,9 @@ enum Watch {
         return sqlite3_column_int64(stmt, 0)
     }
 
-    /// Run this same kbglow binary with the given arguments (pulse manages its
-    /// own single-session lifecycle, so the watcher just shells out to it).
+    /// Spawn this same kbglow binary as a detached pulse session (pulse is a
+    /// long-lived process with its own pid-file lifecycle; stop is called
+    /// in-process via Session.stopAndRestore).
     private static func runSelf(_ args: [String]) {
         guard let exe = Bundle.main.executablePath else { return }
         let p = Process()
@@ -119,7 +120,5 @@ enum Watch {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try? p.run()
-        // pulse daemonizes by design (it keeps running until stopped); don't wait.
-        if args.first == "stop" { p.waitUntilExit() }
     }
 }

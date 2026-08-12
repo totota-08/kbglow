@@ -1,15 +1,6 @@
 import BacklightKit
 import Foundation
 
-func discoverOrExit() -> KeyboardBacklight {
-    do {
-        return try KeyboardBacklight.discover()
-    } catch {
-        FileHandle.standardError.write(Data("kbglow: \(error.localizedDescription)\n".utf8))
-        exit(1)
-    }
-}
-
 let version = "0.6.1"
 
 let usage = """
@@ -19,12 +10,9 @@ USAGE:
   kbglow set <0-100>          Set backlight brightness (percent)
   kbglow get                  Print current brightness (percent)
   kbglow on | off             Full brightness / off
-  kbglow pulse [options]      Flash until stopped (for "agent waiting" alerts)
-      --blink                   Hard 0/100 on-off blinking instead of breathing
+  kbglow pulse [options]      Blink hard on/off until stopped (the agent alert)
       -t, --timeout <sec>       Stop automatically after N seconds (default: 600)
       --period <sec>            Cycle length in seconds (default: 1.6)
-      --min <0-100>             Low point of the cycle (default: 0)
-      --max <0-100>             High point of the cycle (default: 100)
   kbglow watch [options]      Blink when a GUI AI app (Claude Desktop, ChatGPT)
                               posts a notification; stop when you focus the app.
                               Needs Full Disk Access. Runs in the foreground.
@@ -66,32 +54,26 @@ case "set":
         FileHandle.standardError.write(Data("kbglow: set needs a value between 0 and 100\n".utf8))
         exit(1)
     }
-    let bl = discoverOrExit()
-bl.brightness = value
+    discoverOrExit().brightness = value
 
 case "get":
-    let bl = discoverOrExit()
-print(Int((bl.brightness * 100).rounded()))
+    print(Int((discoverOrExit().brightness * 100).rounded()))
 
 case "on", "off":
-    let bl = discoverOrExit()
-bl.brightness = command == "on" ? 1 : 0
+    discoverOrExit().brightness = command == "on" ? 1 : 0
 
 case "pulse":
+    // --blink / --min / --max are accepted-and-ignored for compatibility with
+    // hook commands written by older kbglow-setup versions.
     let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 600
     let period = optionValue(&args, ["--period"]).flatMap(Double.init) ?? 1.6
-    let minB = optionValue(&args, ["--min"]).flatMap(parsePercent) ?? 0
-    let maxB = optionValue(&args, ["--max"]).flatMap(parsePercent) ?? 1
-    let blink = args.contains("--blink")
-    Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period), minB: minB, maxB: maxB, blink: blink)
+    Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period))
 
 case "watch":
     var apps: [String] = []
     while let id = optionValue(&args, ["--app"]) { apps.append(id) }
     let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 120
-    for sig in [SIGINT, SIGTERM, SIGHUP] {
-        signal(sig) { _ in gStop = 1 }
-    }
+    installStopHandlers()
     Watch.run(bundleIDs: apps, pulseTimeout: timeout)
 
 case "stop":

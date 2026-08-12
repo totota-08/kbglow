@@ -59,11 +59,9 @@ make install        # ~/.local/bin/kbglow に入ります
 kbglow set <0-100>      明るさを設定(%)
 kbglow get              現在の明るさを表示
 kbglow on / off         全点灯 / 消灯
-kbglow pulse            明滅開始(承認待ちアラート用)
-    --blink               呼吸ではなく 0/100 のハードな点滅
+kbglow pulse            0/100のハードな点滅を開始(承認待ちアラート用)
     -t, --timeout <秒>    自動停止までの秒数(デフォルト 600)
     --period <秒>         明滅1回の長さ(デフォルト 1.6)
-    --min / --max <0-100> 明滅の下限・上限
 kbglow watch            GUIアプリの通知で明滅(フォアグラウンド)
     --app <bundle-id>     監視対象アプリ。複数指定可
     -t, --timeout <秒>    通知1件あたりの最大点滅時間(デフォルト 120)
