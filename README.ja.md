@@ -37,8 +37,9 @@ make install        # ~/.local/bin/kbglow に入ります
 
 ## 対応環境
 
-- キーボードバックライト付きの Mac(MacBook Air / Pro)
-- Apple Silicon / Intel どちらも可(動作確認は M1 MacBook Air)
+- **macOS 専用**です。Apple のプライベートフレームワーク CoreBrightness でキーボードバックライトを制御しているため、Windows / Linux では動作しません。
+- キーボードバックライト付きの Mac(MacBook Air / Pro)。
+- **正直な注記:** 作者が所有しているのは M1 MacBook Air の1台だけで、実際に動作検証できているのはその環境のみです。ユニバーサルバイナリとしてビルドしているので Intel や新しい Apple Silicon でも動くはずですが、手元で確認はできていません。動いた/動かなかったの報告を歓迎します。
 
 ## Claude Code との連携の仕組み
 
@@ -46,6 +47,15 @@ make install        # ~/.local/bin/kbglow に入ります
 - 承認してツールが動く(**PostToolUse**)、プロンプトを送る(**UserPromptSubmit**)、ターンが終わる(**Stop**)のいずれかで `kbglow stop` → 明滅が止まり元の明るさに戻る
 
 Claude Code 以外のエージェントでも、「承認待ちで任意コマンドを実行できる」仕組みがあれば `kbglow pulse` を呼ぶだけで同じことができます。
+
+ターンの**完了時**にも短く速い点滅が欲しい場合はオプトインで:
+
+```sh
+kbglow-setup --done           # Claude Code の Stop フック + Codex CLI の notify
+kbglow-setup --done-remove    # 承認待ちのみに戻す
+```
+
+([Codex CLI](https://developers.openai.com/codex) は `~/.codex/config.toml` の公式 `notify` オプション(`agent-turn-complete` で発火)を使います。既に notify を設定済みの場合は触りません。)
 
 ## Claude デスクトップ / ChatGPT アプリ(GUIアプリ)
 
@@ -79,7 +89,9 @@ kbglow watch            GUIアプリの通知で明滅(フォアグラウンド�
     -t, --timeout <秒>    通知1件あたりの最大点滅時間(デフォルト 120)
 kbglow stop             実行中の pulse を止めて元の状態に戻す
 kbglow-setup                 Claude Code フックを(再)設定
-kbglow-setup --remove        Claude Code フックを削除
+kbglow-setup --remove        kbglow のフックを全削除(Claude Code + Codex)
+kbglow-setup --done          ターン完了時にも短く点滅
+kbglow-setup --done-remove   承認待ちのみの点滅に戻す
 kbglow-setup --watch         常駐ウォッチャーを設置(launchd)
 kbglow-setup --watch-remove  常駐ウォッチャーを解除
 ```
