@@ -51,7 +51,7 @@ Wire hooks up yourself — `examples/claude-code-hooks.json` is a template.
 
 Each CLI is wired through its own official hook/notify mechanism — no polling, no wrappers. Aider, Goose, and Amp aren't wired yet; PRs welcome.
 
-**GUI apps** (Claude Desktop, the ChatGPT app) have no hooks, so `kbglow-setup --watch` installs a background watcher that blinks when they post a notification and stops when you focus the app. It walks you through the one manual step (granting Full Disk Access) and confirms when it works. Two caveats: the blink starts ~5–10s after the notification (macOS writes them lazily), and after updating kbglow the grant must be re-added (it is tied to the binary's signature — the updater reminds you).
+**GUI apps** (Claude Desktop, the ChatGPT app) have no hooks, so `kbglow-setup --watch` installs a background watcher that blinks when they post a notification and stops when you focus the app or dismiss the notification. It walks you through the one manual step (granting Full Disk Access) and confirms when it works. Two caveats: the blink starts ~5–10s after the notification (macOS writes them lazily), and after updating kbglow the grant must be re-added (it is tied to the binary's signature — the updater reminds you).
 
 ## CLI usage
 

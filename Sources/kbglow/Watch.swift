@@ -43,9 +43,15 @@ enum Watch {
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
             guard let newest = maxRecordID(ids) else { continue }
             if newest < lastSeen {
-                // The DB was cleared or rebuilt and rowids restarted lower;
-                // re-baseline or we would never blink again.
+                // The newest watched notification was dismissed (or the DB was
+                // rebuilt and rowids restarted lower). Re-baseline, and treat a
+                // dismissal as acknowledged — keeping the blink going after the
+                // user explicitly cleared the notification just annoys them.
                 lastSeen = newest
+                if blinking {
+                    blinking = false
+                    Session.stopAndRestore()
+                }
             }
             if newest > lastSeen {
                 lastSeen = newest
@@ -54,6 +60,14 @@ enum Watch {
                 if !watchedAppIsFrontmost() {
                     blinking = true
                     runSelf(["pulse", "--blink", "--period", "2", "-t", String(pulseTimeout)])
+                    // The stop paths below signal the pulse via its pid file;
+                    // if the user focuses the app (or dismisses) before the
+                    // newborn pulse has written it, the stop would miss the
+                    // session and it would blink on to its timeout.
+                    for _ in 0..<40 {
+                        if let pid = Session.readPid(), Session.isKbglowProcess(pid) { break }
+                        usleep(25_000)
+                    }
                 }
             }
             if blinking, watchedAppIsFrontmost() {
