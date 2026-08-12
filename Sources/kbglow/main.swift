@@ -11,7 +11,8 @@ USAGE:
   kbglow get                  Print current brightness (percent)
   kbglow on | off             Full brightness / off
   kbglow pulse [options]      Blink hard on/off until stopped (the agent alert)
-      -t, --timeout <sec>       Stop automatically after N seconds (default: 600)
+      -t, --timeout <sec>       Stop automatically after N seconds
+                                (default: 600; 0 = keep blinking until stopped)
       --period <sec>            Cycle length in seconds (default: 1.6)
   kbglow watch [options]      Blink when a GUI AI app (Claude Desktop, ChatGPT)
                               posts a notification; stop when you focus the app.

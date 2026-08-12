@@ -19,7 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 const POSTINSTALL = process.argv.includes('--postinstall');
 const REMOVE = process.argv.includes('--remove');
@@ -32,13 +32,20 @@ const settingsDir = path.join(os.homedir(), '.claude');
 const settingsPath = path.join(settingsDir, 'settings.json');
 const binPath = path.join(__dirname, '..', 'bin', 'kbglow');
 
+// Shell-quote a path: npm prefixes and home dirs can contain spaces, and an
+// unquoted path in a hook command fails silently behind the `|| true`.
+function shq(p) {
+  return `'${p.replace(/'/g, `'\\''`)}'`;
+}
+const BIN = shq(binPath);
+
 // The four command strings every integration is built from. (--blink is a
 // compatibility no-op since v0.7 but stays so old and new binaries interop.)
-const APPROVAL_PULSE = `(${binPath} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
-const STOP = `${binPath} stop >/dev/null 2>&1 || true`;
+const APPROVAL_PULSE = `(${BIN} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
+const STOP = `${BIN} stop >/dev/null 2>&1 || true`;
 // Short fast double-blink for "the turn finished" (opt-in: kbglow-setup --done).
-const DONE_BLINK = `(${binPath} pulse --blink --period 0.6 -t 2.4 >/dev/null 2>&1 &) || true`;
-const STOP_THEN_DONE = `${binPath} stop >/dev/null 2>&1; ${DONE_BLINK}`;
+const DONE_BLINK = `(${BIN} pulse --blink --period 0.6 -t 2.4 >/dev/null 2>&1 &) || true`;
+const STOP_THEN_DONE = `${BIN} stop >/dev/null 2>&1; ${DONE_BLINK}`;
 // Claude Code / Factory Droid fire their Notification hook for more than
 // permission prompts; the grep keeps the blink to actual permission requests
 // (the hook's JSON payload arrives on stdin).
@@ -57,24 +64,34 @@ function isKbglow(hook) {
   return hook && typeof hook.command === 'string' && hook.command.includes('kbglow');
 }
 
-// Drop kbglow commands from one event's matcher groups; prune empty groups.
+// Drop kbglow commands from one event's matcher groups; prune groups we
+// emptied. Entries with shapes we don't understand pass through untouched.
 function stripKbglow(groups) {
   if (!Array.isArray(groups)) return [];
   return groups
-    .map((g) => ({ ...g, hooks: (g.hooks || []).filter((h) => !isKbglow(h)) }))
-    .filter((g) => g.hooks.length > 0);
+    .map((g) => {
+      if (!g || typeof g !== 'object' || Array.isArray(g) || !Array.isArray(g.hooks)) return g;
+      return { ...g, hooks: g.hooks.filter((h) => !isKbglow(h)) };
+    })
+    .filter((g) => !(g && typeof g === 'object' && Array.isArray(g.hooks) && g.hooks.length === 0));
 }
 
 function main() {
   const settings = readJSON(settingsPath); // validates before we back up or write
   let backedUp = false;
   if (fs.existsSync(settingsPath)) {
-    fs.writeFileSync(settingsPath + '.kbglow-bak', fs.readFileSync(settingsPath));
-    backedUp = true;
+    const raw = fs.readFileSync(settingsPath, 'utf8');
+    // Back up only a file that is still kbglow-free — that is the "previous
+    // settings" worth restoring; later runs must not clobber it.
+    if (!fs.existsSync(settingsPath + '.kbglow-bak') || !raw.includes('kbglow')) {
+      fs.writeFileSync(settingsPath + '.kbglow-bak', raw);
+      backedUp = true;
+    }
   }
 
   // Keep done-mode sticky across plain re-runs unless explicitly toggled.
-  const hadDone = JSON.stringify((settings.hooks || {}).Stop || []).includes('pulse');
+  // (Match our own command, not any hook that merely mentions "pulse".)
+  const hadDone = /kbglow'? pulse/.test(JSON.stringify((settings.hooks || {}).Stop || []));
   const done = DONE ? true : DONE_REMOVE ? false : hadDone;
   mergeHookEvents(settingsPath, events(done), { remove: REMOVE });
 
@@ -116,12 +133,17 @@ function home(...p) {
 }
 
 function readJSON(file) {
+  let parsed;
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
     if (fs.existsSync(file)) throw new Error(`${file} is not valid JSON — fix it first`);
     return {};
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${file} is not a JSON object — refusing to touch it`);
+  }
+  return parsed;
 }
 
 function writeJSON(file, obj) {
@@ -133,6 +155,7 @@ function writeJSON(file, obj) {
 // `nested` wraps it under a top-level "hooks" key (Gemini/Qwen settings.json);
 // Factory's hooks.json has the events at the top level.
 function mergeHookEvents(file, eventCommands, { nested = true, remove = false } = {}) {
+  if (remove && !fs.existsSync(file)) return; // nothing to clean, don't create one
   const root = readJSON(file);
   const container = nested ? root.hooks || {} : root;
   for (const [event, command] of Object.entries(eventCommands)) {
@@ -221,6 +244,7 @@ const ADAPTERS = [
         } catch (e) {
           /* already gone */
         }
+        if (!fs.existsSync(file)) return; // nothing to clean, don't create one
       } else {
         fs.writeFileSync(script, `#!/bin/sh\n${done ? STOP_THEN_DONE : STOP}\n`, { mode: 0o755 });
         kept.push({ command: script });
@@ -276,9 +300,23 @@ function configureAdapters(done, remove) {
   return wired;
 }
 
-const WATCH_LOG = '/tmp/kbglow.watch.log';
+const WATCH_LOG = `/tmp/kbglow.${process.getuid()}.watch.log`;
 
 const codexConfigPath = path.join(os.homedir(), '.codex', 'config.toml');
+
+// Match ONLY the two lines kbglow writes — a user's own config that happens
+// to mention kbglow must never be collateral damage.
+function isOurCodexLine(l) {
+  return l.startsWith('# kbglow:') || (/^\s*notify\s*=/.test(l) && l.includes('# kbglow"]'));
+}
+
+function codexHasOurEntry() {
+  try {
+    return fs.readFileSync(codexConfigPath, 'utf8').split('\n').some(isOurCodexLine);
+  } catch (e) {
+    return false;
+  }
+}
 
 /// Wire the turn-complete blink into Codex CLI via its `notify` option
 /// (fires on agent-turn-complete). Top-level TOML keys must sit before the
@@ -294,7 +332,9 @@ function configureCodex(enable) {
   } catch (e) {
     /* no config yet — we'll create one */
   }
-  const lines = text.split('\n').filter((l) => !l.includes('kbglow'));
+  const allLines = text.split('\n');
+  const lines = allLines.filter((l) => !isOurCodexLine(l));
+  const hadOurs = lines.length !== allLines.length;
   if (enable) {
     if (lines.some((l) => /^\s*notify\s*=/.test(l))) {
       console.warn('kbglow: ~/.codex/config.toml already defines notify — left untouched');
@@ -309,7 +349,7 @@ function configureCodex(enable) {
     lines.splice(at, 0, ...entry);
     fs.writeFileSync(codexConfigPath, lines.join('\n'));
     console.log('kbglow: Codex CLI turn-complete blink configured (~/.codex/config.toml)');
-  } else if (text.includes('kbglow')) {
+  } else if (hadOurs) {
     fs.writeFileSync(codexConfigPath, lines.join('\n'));
     console.log('kbglow: removed the Codex CLI notify entry');
   }
@@ -318,12 +358,16 @@ function configureCodex(enable) {
 const agentLabel = 'dev.totota08.kbglow.watch';
 const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${agentLabel}.plist`);
 
-function launchctl(cmd) {
+function launchctl(...args) {
   try {
-    execSync(`launchctl ${cmd}`, { stdio: 'ignore' });
+    execFileSync('launchctl', args, { stdio: 'ignore' });
   } catch (e) {
     /* bootout of a non-loaded agent etc. — fine */
   }
+}
+
+function xmlEsc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function sleep(seconds) {
@@ -337,8 +381,8 @@ function sleep(seconds) {
 function guideFullDiskAccess() {
   try {
     execSync('pbcopy', { input: binPath });
-    execSync(`open -R "${binPath}"`);
-    execSync('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"');
+    execFileSync('open', ['-R', binPath]);
+    execFileSync('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles']);
   } catch (e) {
     /* headless / non-GUI session — the printed instructions still apply */
   }
@@ -373,33 +417,33 @@ function installWatchAgent() {
 	<key>Label</key><string>${agentLabel}</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>${binPath}</string>
+		<string>${xmlEsc(binPath)}</string>
 		<string>watch</string>
 	</array>
 	<key>RunAtLoad</key><true/>
 	<key>KeepAlive</key><true/>
 	<key>ThrottleInterval</key><integer>30</integer>
-	<key>StandardErrorPath</key><string>${WATCH_LOG}</string>
+	<key>StandardErrorPath</key><string>${xmlEsc(WATCH_LOG)}</string>
 </dict>
 </plist>
 `;
   fs.mkdirSync(path.dirname(plistPath), { recursive: true });
   fs.writeFileSync(plistPath, plist);
   const uid = process.getuid();
-  launchctl(`bootout gui/${uid} ${plistPath}`);
+  launchctl('bootout', `gui/${uid}`, plistPath);
   try {
     fs.unlinkSync(WATCH_LOG); // stale success lines would fool the grant detection
   } catch (e) {
     /* no old log */
   }
-  launchctl(`bootstrap gui/${uid} ${plistPath}`);
+  launchctl('bootstrap', `gui/${uid}`, plistPath);
   console.log('kbglow: watch agent installed (blinks on Claude Desktop / ChatGPT notifications)');
   console.log('kbglow: (undo anytime with: kbglow-setup --watch-remove)');
   guideFullDiskAccess();
 }
 
 function removeWatchAgent() {
-  launchctl(`bootout gui/${process.getuid()} ${plistPath}`);
+  launchctl('bootout', `gui/${process.getuid()}`, plistPath);
   try {
     fs.unlinkSync(plistPath);
   } catch (e) {
@@ -416,7 +460,9 @@ try {
   } else {
     const done = main();
     configureAdapters(done, REMOVE);
-    if (DONE || DONE_REMOVE || REMOVE) configureCodex(DONE);
+    // Refresh an existing Codex entry on plain runs too (an npm-prefix change
+    // would otherwise leave it pointing at a dead binary path forever).
+    configureCodex(REMOVE || DONE_REMOVE ? false : DONE || codexHasOurEntry());
   }
 } catch (e) {
   if (POSTINSTALL) {
