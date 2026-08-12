@@ -4,6 +4,22 @@ import Foundation
 /// Set to 1 by signal handlers; long-running loops poll this and exit cleanly.
 nonisolated(unsafe) var gStop: sig_atomic_t = 0
 
+func installStopHandlers() {
+    for sig in [SIGINT, SIGTERM, SIGHUP] {
+        signal(sig) { _ in gStop = 1 }
+    }
+}
+
+/// The keyboard backlight, or a clean exit naming the actual cause.
+func discoverOrExit() -> KeyboardBacklight {
+    do {
+        return try KeyboardBacklight.discover()
+    } catch {
+        FileHandle.standardError.write(Data("kbglow: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
+
 private let pidPath = "/tmp/kbglow.pid"
 private let statePath = "/tmp/kbglow.state"
 
@@ -24,14 +40,9 @@ final class Session {
     private let savedAuto: Bool
     private var finished = false
 
-    init?() {
-        do {
-            backlight = try KeyboardBacklight.discover()
-        } catch {
-            FileHandle.standardError.write(Data("kbglow: \(error.localizedDescription)\n".utf8))
-            return nil
-        }
-        let bl = backlight
+    init() {
+        let bl = discoverOrExit()
+        backlight = bl
 
         Session.killExisting()
         try? String(ProcessInfo.processInfo.processIdentifier).write(
@@ -49,9 +60,7 @@ final class Session {
         }
         bl.autoBrightness = false
 
-        for sig in [SIGINT, SIGTERM, SIGHUP] {
-            signal(sig) { _ in gStop = 1 }
-        }
+        installStopHandlers()
     }
 
     func finish() {
