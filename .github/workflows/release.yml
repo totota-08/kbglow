@@ -41,7 +41,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           TITLE="$TITLE_INPUT"
-          if [ -z "$TITLE" ]; then TITLE=$(git log -1 --pretty=%s); fi
+          # Skip merge commits ("Merge pull request #N ...") when defaulting
+          # the title to the latest commit message.
+          if [ -z "$TITLE" ]; then TITLE=$(git log --no-merges -1 --pretty=%s); fi
           V=$(npm version ${{ inputs.bump }} --no-git-tag-version)
           V=${V#v}
           sed -i '' "s/^let version = \".*\"/let version = \"$V\"/" Sources/kbglow/main.swift
