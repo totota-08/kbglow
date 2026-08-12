@@ -59,13 +59,12 @@ make install        # ~/.local/bin/kbglow に入ります
 kbglow set <0-100>      明るさを設定(%)
 kbglow get              現在の明るさを表示
 kbglow on / off         全点灯 / 消灯
-kbglow pulse            明滅開始(承認待ちアラート用)
-    --blink               呼吸ではなく 0/100 のハードな点滅
+kbglow pulse            0/100のハードな点滅を開始(承認待ちアラート用)
     -t, --timeout <秒>    自動停止までの秒数(デフォルト 600)
     --period <秒>         明滅1回の長さ(デフォルト 1.6)
-    --min / --max <0-100> 明滅の下限・上限
 kbglow watch            GUIアプリの通知で明滅(フォアグラウンド)
     --app <bundle-id>     監視対象アプリ。複数指定可
+    -t, --timeout <秒>    通知1件あたりの最大点滅時間(デフォルト 120)
 kbglow stop             実行中の pulse を止めて元の状態に戻す
 
 kbglow-setup                 検出した AI CLI をまとめて(再)配線
@@ -86,17 +85,13 @@ kbglow-setup --watch-remove  ウォッチャーを解除
 
 ## 仕組み
 
-バックライト制御は [kbdlight](https://github.com/totota-08/kbdlight) 製(プライベートフレームワーク `CoreBrightness` を実行時に読み込み — 将来の macOS で動かなくなる可能性があります)。GUIアプリ用ウォッチャーは通知センターのDBを読むため、フルディスクアクセスが必要です。
+バックライト制御は [BacklightKit](https://github.com/totota-08/BacklightKit) 製(プライベートフレームワーク `CoreBrightness` を実行時に読み込み — 将来の macOS で動かなくなる可能性があります)。GUIアプリ用ウォッチャーは通知センターのDBを読むため、フルディスクアクセスが必要です。
 
 ## トラブルシューティング
 
 - `no controllable keyboard backlight found` — バックライト非搭載の Mac か、外付けキーボードのみの環境です
 - 明るさが勝手に変わる — macOS の自動調光と競合している場合、pulse 実行中は自動調光を一時無効化し、終了時に復元します
 - ウォッチャーが光らない — `/tmp/kbglow.watch.log` を確認。大抵はフルディスクアクセス未付与です
-
-## 開発とリリース
-
-普段の変更は `develop` ブランチ(デフォルト)に入れます。リリースするときは **Actions → release → Run workflow** でバージョンの上げ幅(patch / minor / major)と、必要ならリリースタイトルを選ぶだけ。ワークフローがバージョンを上げ、`develop` を `main` にマージし、npm へ publish して、GitHub Release を作成します。
 
 ## License
 

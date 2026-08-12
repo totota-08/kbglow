@@ -59,13 +59,12 @@ Each CLI is wired through its own official hook/notify mechanism — no polling,
 kbglow set <0-100>      Set brightness (percent)
 kbglow get              Print current brightness
 kbglow on / off         Full brightness / off
-kbglow pulse            Blink until stopped (the approval alert)
-    --blink               Hard 0/100 blinking instead of breathing
+kbglow pulse            Blink hard on/off until stopped (the approval alert)
     -t, --timeout <sec>   Auto-stop after N seconds (default 600)
     --period <sec>        Cycle length (default 1.6)
-    --min / --max <0-100> Low / high point of the cycle
 kbglow watch            Blink on GUI-app notifications (foreground)
     --app <bundle-id>     App to watch, repeatable
+    -t, --timeout <sec>   Max blink per notification (default 120)
 kbglow stop             Stop a running pulse, restore previous state
 
 kbglow-setup                 (Re)wire every detected AI CLI
@@ -86,17 +85,13 @@ kbglow-setup --watch-remove  Remove the watcher
 
 ## Under the hood
 
-Backlight control comes from [kbdlight](https://github.com/totota-08/kbdlight) (the private `CoreBrightness` framework, loaded at runtime — may break in a future macOS). The GUI-app watcher reads the Notification Center database, which is why it needs Full Disk Access.
+Backlight control comes from [BacklightKit](https://github.com/totota-08/BacklightKit) (the private `CoreBrightness` framework, loaded at runtime — may break in a future macOS). The GUI-app watcher reads the Notification Center database, which is why it needs Full Disk Access.
 
 ## Troubleshooting
 
 - `no controllable keyboard backlight found` — this Mac has no controllable backlight (or only an external keyboard)
 - Brightness changes on its own — macOS auto-brightness; kbglow disables it during a pulse and restores it afterwards
 - Watcher not blinking — check `/tmp/kbglow.watch.log`; it usually means Full Disk Access is missing
-
-## Development & releasing
-
-Day-to-day changes land on the `develop` branch (the default). To ship a release, go to **Actions → release → Run workflow**, pick a version bump (patch / minor / major) and optionally a release title — the workflow bumps the version, merges `develop` into `main`, publishes to npm, and creates a GitHub release.
 
 ## License
 

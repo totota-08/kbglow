@@ -1,11 +1,28 @@
+import BacklightKit
 import Foundation
-import MacKeyboardBacklight
 
 /// Set to 1 by signal handlers; long-running loops poll this and exit cleanly.
 nonisolated(unsafe) var gStop: sig_atomic_t = 0
 
-private let pidPath = "/tmp/kbglow.pid"
-private let statePath = "/tmp/kbglow.state"
+func installStopHandlers() {
+    for sig in [SIGINT, SIGTERM, SIGHUP] {
+        signal(sig) { _ in gStop = 1 }
+    }
+}
+
+/// The keyboard backlight, or a clean exit naming the actual cause.
+func discoverOrExit() -> KeyboardBacklight {
+    do {
+        return try KeyboardBacklight.discover()
+    } catch {
+        FileHandle.standardError.write(Data("kbglow: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
+
+// Per-uid so two users on one Mac never fight over each other's files.
+private let pidPath = "/tmp/kbglow.\(getuid()).pid"
+private let statePath = "/tmp/kbglow.\(getuid()).state"
 
 /// A long-running lighting session (pulse). Ensures only one instance
 /// runs at a time, and restores the original backlight state on exit.
@@ -16,7 +33,7 @@ private let statePath = "/tmp/kbglow.state"
 /// would "save" a broken state and restoring would wreck the user's settings.
 /// The file always holds the state from before the *first* session, survives
 /// takeovers and crashes, and is removed once it has been restored.
-/// (kbdlight's `withManualControl` restores in-process; the file covers the
+/// (BacklightKit's `withManualControl` restores in-process; the file covers the
 /// cross-process handoffs it cannot see.)
 final class Session {
     let backlight: KeyboardBacklight
@@ -24,11 +41,8 @@ final class Session {
     private let savedAuto: Bool
     private var finished = false
 
-    init?() {
-        guard let bl = KeyboardBacklight() else {
-            FileHandle.standardError.write(Data("kbglow: no controllable keyboard backlight found\n".utf8))
-            return nil
-        }
+    init() {
+        let bl = discoverOrExit()
         backlight = bl
 
         Session.killExisting()
@@ -47,9 +61,7 @@ final class Session {
         }
         bl.autoBrightness = false
 
-        for sig in [SIGINT, SIGTERM, SIGHUP] {
-            signal(sig) { _ in gStop = 1 }
-        }
+        installStopHandlers()
     }
 
     func finish() {
@@ -80,23 +92,44 @@ final class Session {
             toFile: statePath, atomically: true, encoding: .utf8)
     }
 
+    /// True when `pid` is a live process actually running a kbglow binary.
+    /// A stale pid file can point at a recycled pid belonging to some
+    /// innocent app — never signal without this check.
+    static func isKbglowProcess(_ pid: Int32) -> Bool {
+        guard kill(pid, 0) == 0 else { return false }
+        var buf = [CChar](repeating: 0, count: 4 * 1024)
+        guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { return false }
+        return String(cString: buf).contains("kbglow")
+    }
+
     /// Ask any running kbglow session to stop (it restores brightness itself).
     static func killExisting() {
         guard let pid = readPid(), pid != ProcessInfo.processInfo.processIdentifier else { return }
-        if kill(pid, SIGTERM) == 0 {
+        if isKbglowProcess(pid), kill(pid, SIGTERM) == 0 {
             // Give it a moment to restore state and remove the pid file.
             for _ in 0..<20 where kill(pid, 0) == 0 { usleep(25_000) }
         }
-        try? FileManager.default.removeItem(atPath: pidPath)
+        // Compare-and-delete: a session that started while we were waiting
+        // owns the pid file now — deleting it would orphan that session.
+        if readPid() == pid {
+            try? FileManager.default.removeItem(atPath: pidPath)
+        }
     }
 
     /// `kbglow stop`: stop a running session, and if a state file is still
     /// around afterwards (the session crashed or was SIGKILLed before it
     /// could restore), restore the original state from the file.
     static func stopAndRestore() {
-        killExisting()
+        // A session starting concurrently can replace the one we just killed;
+        // keep going until none is left (bounded — this converges immediately
+        // outside pathological loops).
+        for _ in 0..<3 {
+            killExisting()
+            guard let pid = readPid(), isKbglowProcess(pid) else { break }
+        }
+        if let pid = readPid(), isKbglowProcess(pid) { return } // it will restore itself
         guard let (b, auto) = readState() else { return }
-        if let bl = KeyboardBacklight() {
+        if let bl = try? KeyboardBacklight.discover() {
             bl.brightness = b
             bl.autoBrightness = auto
         }

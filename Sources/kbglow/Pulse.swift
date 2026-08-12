@@ -1,24 +1,17 @@
 import Foundation
 
 enum Pulse {
-    /// Flash the backlight between `minB` and `maxB` until stopped or `timeout`
-    /// elapses. `blink` toggles hard on/off (square wave); otherwise breathe
-    /// smoothly (sine).
-    static func run(timeout: Double?, period: Double, minB: Double, maxB: Double, blink: Bool) {
-        guard let session = Session() else { exit(1) }
+    /// Hard-blink the backlight (full on/off square wave) until stopped or
+    /// `timeout` elapses.
+    static func run(timeout: Double?, period: Double) {
+        let session = Session()
         let start = Date()
         let fps = 30.0
         var t = 0.0
         var last = -1.0
         while gStop == 0 {
             if let limit = timeout, Date().timeIntervalSince(start) >= limit { break }
-            let value: Double
-            if blink {
-                value = t.truncatingRemainder(dividingBy: period) < period / 2 ? maxB : minB
-            } else {
-                let phase = (1 - cos(2 * .pi * t / period)) / 2
-                value = minB + (maxB - minB) * phase
-            }
+            let value: Double = t.truncatingRemainder(dividingBy: period) < period / 2 ? 1 : 0
             if value != last {
                 session.backlight.brightness = value
                 last = value

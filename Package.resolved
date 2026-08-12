@@ -1,12 +1,12 @@
 {
   "pins" : [
     {
-      "identity" : "kbdlight",
+      "identity" : "backlightkit",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/totota-08/kbdlight.git",
+      "location" : "https://github.com/totota-08/BacklightKit.git",
       "state" : {
-        "revision" : "d69f45722e6b72a9a5f805d2c0f7a0a8e4fe1aaf",
-        "version" : "0.2.0"
+        "revision" : "acc0fa68c1549a10b25481fb83d8535595f6fd11",
+        "version" : "0.5.0"
       }
     }
   ],

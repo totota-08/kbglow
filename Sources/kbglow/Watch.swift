@@ -30,23 +30,38 @@ enum Watch {
         // The notification DB lowercases bundle IDs; NSWorkspace reports the
         // app's true casing (e.g. com.apple.ScriptEditor2) — compare folded.
         let folded = Set(ids.map { $0.lowercased() })
+        func watchedAppIsFrontmost() -> Bool {
+            guard let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+                return false
+            }
+            return folded.contains(front.lowercased())
+        }
+
         var blinking = false
         while gStop == 0 {
             // Pump the runloop (not just sleep) so NSWorkspace state stays fresh.
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
             guard let newest = maxRecordID(ids) else { continue }
+            if newest < lastSeen {
+                // The DB was cleared or rebuilt and rowids restarted lower;
+                // re-baseline or we would never blink again.
+                lastSeen = newest
+            }
             if newest > lastSeen {
                 lastSeen = newest
-                blinking = true
-                runSelf(["pulse", "--blink", "--period", "2", "-t", String(pulseTimeout)])
+                // A notification from the app the user is already looking at
+                // needs no blink (and the stop below would race the spawn).
+                if !watchedAppIsFrontmost() {
+                    blinking = true
+                    runSelf(["pulse", "--blink", "--period", "2", "-t", String(pulseTimeout)])
+                }
             }
-            if blinking, let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-               folded.contains(front.lowercased()) {
+            if blinking, watchedAppIsFrontmost() {
                 blinking = false
-                runSelf(["stop"])
+                Session.stopAndRestore()
             }
         }
-        if blinking { runSelf(["stop"]) }
+        if blinking { Session.stopAndRestore() }
     }
 
     /// First successful read of the DB. Without Full Disk Access the open
@@ -54,8 +69,16 @@ enum Watch {
     /// starts working the moment the permission is granted.
     private static func waitForDatabase(_ ids: [String]) -> Int64? {
         var warned = false
+        var failures = 0
         while gStop == 0 {
             if let newest = maxRecordID(ids) { return newest }
+            // A transient SQLITE_BUSY is not a missing permission — retry a
+            // few times quickly before lecturing about Full Disk Access.
+            failures += 1
+            if failures < 3 {
+                usleep(1_000_000)
+                continue
+            }
             if !warned {
                 warned = true
                 FileHandle.standardError.write(Data("""
@@ -86,6 +109,7 @@ enum Watch {
             return nil
         }
         defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 250)
 
         let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
         let sql = """
@@ -109,8 +133,9 @@ enum Watch {
         return sqlite3_column_int64(stmt, 0)
     }
 
-    /// Run this same kbglow binary with the given arguments (pulse manages its
-    /// own single-session lifecycle, so the watcher just shells out to it).
+    /// Spawn this same kbglow binary as a detached pulse session (pulse is a
+    /// long-lived process with its own pid-file lifecycle; stop is called
+    /// in-process via Session.stopAndRestore).
     private static func runSelf(_ args: [String]) {
         guard let exe = Bundle.main.executablePath else { return }
         let p = Process()
@@ -119,7 +144,5 @@ enum Watch {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try? p.run()
-        // pulse daemonizes by design (it keeps running until stopped); don't wait.
-        if args.first == "stop" { p.waitUntilExit() }
     }
 }

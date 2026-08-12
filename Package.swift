@@ -5,13 +5,13 @@ let package = Package(
     name: "kbglow",
     platforms: [.macOS(.v13)],
     dependencies: [
-        .package(url: "https://github.com/totota-08/kbdlight.git", from: "0.2.0")
+        .package(url: "https://github.com/totota-08/BacklightKit.git", from: "0.5.0")
     ],
     targets: [
         .executableTarget(
             name: "kbglow",
             dependencies: [
-                .product(name: "MacKeyboardBacklight", package: "kbdlight")
+                .product(name: "BacklightKit", package: "BacklightKit")
             ],
             path: "Sources/kbglow"
         )
