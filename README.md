@@ -14,7 +14,7 @@ Zero dependencies, single Swift binary, macOS only.
 npm install -g kbglow
 ```
 
-That's it. The installer detects the AI CLIs on your machine and wires them all up automatically. Your existing settings are preserved (with a backup), and `kbglow-setup --remove` undoes everything.
+That's it. The installer detects the AI CLIs on your machine and wires them all up automatically. Your existing settings are preserved (Claude Code's settings.json additionally gets a `.kbglow-bak` backup), and `kbglow-setup --remove` undoes all hook wiring (plus `--watch-remove` if you installed the watcher).
 
 Optional extras:
 
@@ -60,15 +60,18 @@ kbglow set <0-100>      Set brightness (percent)
 kbglow get              Print current brightness
 kbglow on / off         Full brightness / off
 kbglow pulse            Blink hard on/off until stopped (the approval alert)
-    -t, --timeout <sec>   Auto-stop after N seconds (default 600)
+    -t, --timeout <sec>   Auto-stop after N seconds (default 600; 0 = blink until stopped)
     --period <sec>        Cycle length (default 1.6)
 kbglow watch            Blink on GUI-app notifications (foreground)
     --app <bundle-id>     App to watch, repeatable
     -t, --timeout <sec>   Max blink per notification (default 120)
 kbglow stop             Stop a running pulse, restore previous state
+kbglow help             Show usage (also -h / --help)
+kbglow version          Show version (also -v / --version)
 
 kbglow-setup                 (Re)wire every detected AI CLI
 kbglow-setup --remove        Remove every kbglow hook and generated file
+                             (except the watch agent — use --watch-remove)
 kbglow-setup --done          Also blink briefly when a turn completes
 kbglow-setup --done-remove   Approval-only blinking again
 kbglow-setup --watch         Install the GUI-app watcher (guided)
@@ -91,7 +94,7 @@ Backlight control comes from [BacklightKit](https://github.com/totota-08/Backlig
 
 - `no controllable keyboard backlight found` — this Mac has no controllable backlight (or only an external keyboard)
 - Brightness changes on its own — macOS auto-brightness; kbglow disables it during a pulse and restores it afterwards
-- Watcher not blinking — check `/tmp/kbglow.watch.log`; it usually means Full Disk Access is missing
+- Watcher not blinking — check `/tmp/kbglow.<uid>.watch.log` (e.g. `/tmp/kbglow.501.watch.log`; `kbglow-setup --watch` prints the exact path) — it usually means Full Disk Access is missing
 
 ## License
 

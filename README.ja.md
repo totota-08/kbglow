@@ -14,7 +14,7 @@ Claude Code などのエージェントが「許可を求めて止まってい�
 npm install -g kbglow
 ```
 
-これだけです。インストーラーがマシン上の AI CLI を自動検出して、まとめて配線します。既存の設定は保持され(バックアップ付き)、`kbglow-setup --remove` で全部元に戻せます。
+これだけです。インストーラーがマシン上の AI CLI を自動検出して、まとめて配線します。既存の設定は保持され(Claude Code の settings.json はさらに `.kbglow-bak` にバックアップ)、`kbglow-setup --remove` でフック配線を全部元に戻せます(ウォッチャーを入れた場合は `--watch-remove` も)。
 
 オプション:
 
@@ -60,15 +60,18 @@ kbglow set <0-100>      明るさを設定(%)
 kbglow get              現在の明るさを表示
 kbglow on / off         全点灯 / 消灯
 kbglow pulse            0/100のハードな点滅を開始(承認待ちアラート用)
-    -t, --timeout <秒>    自動停止までの秒数(デフォルト 600)
+    -t, --timeout <秒>    自動停止までの秒数(デフォルト 600。0 で止めるまで点滅)
     --period <秒>         明滅1回の長さ(デフォルト 1.6)
 kbglow watch            GUIアプリの通知で明滅(フォアグラウンド)
     --app <bundle-id>     監視対象アプリ。複数指定可
     -t, --timeout <秒>    通知1件あたりの最大点滅時間(デフォルト 120)
 kbglow stop             実行中の pulse を止めて元の状態に戻す
+kbglow help             使い方を表示(-h / --help も可)
+kbglow version          バージョンを表示(-v / --version も可)
 
 kbglow-setup                 検出した AI CLI をまとめて(再)配線
 kbglow-setup --remove        kbglow のフック・生成ファイルを全削除
+                             (ウォッチャーは除く — --watch-remove で解除)
 kbglow-setup --done          ターン完了時にも短く点滅
 kbglow-setup --done-remove   承認待ちのみの点滅に戻す
 kbglow-setup --watch         GUIアプリ用ウォッチャーを設置(ガイド付き)
@@ -91,7 +94,7 @@ kbglow-setup --watch-remove  ウォッチャーを解除
 
 - `no controllable keyboard backlight found` — バックライト非搭載の Mac か、外付けキーボードのみの環境です
 - 明るさが勝手に変わる — macOS の自動調光と競合している場合、pulse 実行中は自動調光を一時無効化し、終了時に復元します
-- ウォッチャーが光らない — `/tmp/kbglow.watch.log` を確認。大抵はフルディスクアクセス未付与です
+- ウォッチャーが光らない — `/tmp/kbglow.<uid>.watch.log`(例: `/tmp/kbglow.501.watch.log` — 正確なパスは `kbglow-setup --watch` が表示)を確認。大抵はフルディスクアクセス未付与です
 
 ## License
 
