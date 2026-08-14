@@ -3,7 +3,9 @@
 // keyboard blinks while Claude is waiting for approval.
 //
 //   kbglow-setup                 add/update the hooks
-//   kbglow-setup --remove        remove every kbglow hook (Claude Code + Codex)
+//   kbglow-setup --remove        remove every kbglow hook (Claude Code, Codex,
+//                                and every other wired CLI: Gemini, Qwen,
+//                                Factory, Copilot, Cursor, opencode)
 //   kbglow-setup --done          also blink briefly when a turn COMPLETES
 //                                (Claude Code Stop hook + Codex CLI notify)
 //   kbglow-setup --done-remove   back to approval-only blinking
@@ -76,15 +78,41 @@ function stripKbglow(groups) {
     .filter((g) => !(g && typeof g === 'object' && Array.isArray(g.hooks) && g.hooks.length === 0));
 }
 
+// Do the parsed hooks contain any kbglow entry? (Raw-text matching would
+// false-positive on e.g. a permissions rule that merely mentions kbglow.)
+function hasKbglowHooks(container) {
+  return Object.values(container || {}).some(
+    (groups) => Array.isArray(groups) && groups.some(
+      (g) => g && typeof g === 'object' && Array.isArray(g.hooks) && g.hooks.some(isKbglow)));
+}
+
+// A copy of the settings with every kbglow hook stripped out.
+function withoutKbglowHooks(settings) {
+  const root = { ...settings };
+  const hooks = {};
+  for (const [event, groups] of Object.entries(settings.hooks || {})) {
+    const kept = stripKbglow(groups);
+    if (kept.length > 0) hooks[event] = kept;
+  }
+  if (Object.keys(hooks).length > 0) root.hooks = hooks;
+  else delete root.hooks;
+  return root;
+}
+
 function main() {
   const settings = readJSON(settingsPath); // validates before we back up or write
   let backedUp = false;
   if (fs.existsSync(settingsPath)) {
-    const raw = fs.readFileSync(settingsPath, 'utf8');
-    // Back up only a file that is still kbglow-free — that is the "previous
-    // settings" worth restoring; later runs must not clobber it.
-    if (!fs.existsSync(settingsPath + '.kbglow-bak') || !raw.includes('kbglow')) {
-      fs.writeFileSync(settingsPath + '.kbglow-bak', raw);
+    // Back up only kbglow-free content — that is the "previous settings"
+    // worth restoring; a later run must not clobber it with a hooked-up file.
+    // If our hooks are already present (and no backup exists yet), back up a
+    // stripped copy so the backup never contains kbglow hooks.
+    const hasOurs = hasKbglowHooks(settings.hooks);
+    if (!fs.existsSync(settingsPath + '.kbglow-bak') || !hasOurs) {
+      const content = hasOurs
+        ? JSON.stringify(withoutKbglowHooks(settings), null, 2) + '\n'
+        : fs.readFileSync(settingsPath, 'utf8');
+      fs.writeFileSync(settingsPath + '.kbglow-bak', content);
       backedUp = true;
     }
   }
@@ -236,8 +264,7 @@ const ADAPTERS = [
       const root = readJSON(file);
       root.version = root.version || 1;
       root.hooks = root.hooks || {};
-      const kept = (root.hooks.stop || []).filter(
-        (h) => !(h && typeof h.command === 'string' && h.command.includes('kbglow')));
+      const kept = (root.hooks.stop || []).filter((h) => !isKbglow(h));
       if (remove) {
         try {
           fs.unlinkSync(script);
@@ -344,7 +371,20 @@ function configureCodex(enable) {
       '# kbglow: blink when a Codex turn completes (kbglow-setup --done)',
       `notify = ["sh", "-c", "${DONE_BLINK} # kbglow"]`,
     ];
-    let at = lines.findIndex((l) => l.trim().startsWith('['));
+    // Only a real [table] / [[array-of-tables]] header line counts: a line
+    // merely starting with '[' can sit inside a multi-line array or a
+    // triple-quoted string, and splicing there would corrupt the file.
+    // (The parity toggle skips triple-quoted blocks, where even a line that
+    // looks exactly like a header is still just string content.)
+    let at = -1;
+    let inTripleQuoted = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (!inTripleQuoted && /^\s*\[\[?[A-Za-z0-9_."'-]+\]\]?\s*$/.test(lines[i])) {
+        at = i;
+        break;
+      }
+      if (((lines[i].match(/"""|'''/g) || []).length) % 2 === 1) inTripleQuoted = !inTripleQuoted;
+    }
     if (at === -1) at = lines.length;
     lines.splice(at, 0, ...entry);
     fs.writeFileSync(codexConfigPath, lines.join('\n'));
@@ -458,7 +498,15 @@ try {
   } else if (WATCH_REMOVE) {
     removeWatchAgent();
   } else {
-    const done = main();
+    let done = false;
+    if (POSTINSTALL && !fs.existsSync(settingsDir)) {
+      // No ~/.claude — don't conjure a Claude Code config dir for someone
+      // who doesn't use Claude Code. An explicit `kbglow-setup` run (and
+      // its done-state stickiness) still works as before.
+      console.log('kbglow: Claude Code not found (~/.claude) — skipped (run kbglow-setup to wire it up later)');
+    } else {
+      done = main();
+    }
     configureAdapters(done, REMOVE);
     // Refresh an existing Codex entry on plain runs too (an npm-prefix change
     // would otherwise leave it pointing at a dead binary path forever).
