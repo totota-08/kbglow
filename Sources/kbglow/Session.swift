@@ -77,15 +77,16 @@ final class Session {
     /// End-of-session restore, honoring the configured `RestoreMode`.
     /// In `auto` mode the saved brightness is deliberately not written back:
     /// auto-brightness is re-enabled and the ambient sensor picks the level.
-    /// Keyboards without the ambient feature fall back to the fixed restore
-    /// (enabling auto there would be a no-op and leave the blink's last frame).
+    /// Falls back to the fixed restore when the keyboard lacks the ambient
+    /// feature *or* the enable write fails — otherwise nothing would be
+    /// restored and the backlight would stay on the blink's last frame.
     static func restore(_ bl: KeyboardBacklight, brightness: Double, auto: Bool) {
-        if RestoreMode.load() == .auto, bl.supportsAutoBrightness {
-            bl.autoBrightness = true
-        } else {
-            bl.brightness = brightness
-            bl.autoBrightness = auto
+        if RestoreMode.load() == .auto, bl.supportsAutoBrightness,
+           (try? bl.defaultKeyboard.setAutoBrightness(true)) != nil {
+            return
         }
+        bl.brightness = brightness
+        bl.autoBrightness = auto
     }
 
     static func readPid() -> Int32? {
