@@ -14,21 +14,21 @@
     "PostToolUse": [
       {
         "hooks": [
-          { "type": "command", "command": "$HOME/.local/bin/kbglow stop" }
+          { "type": "command", "command": "$HOME/.local/bin/kbglow stop >/dev/null 2>&1 || true" }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "$HOME/.local/bin/kbglow stop" }
+          { "type": "command", "command": "$HOME/.local/bin/kbglow stop >/dev/null 2>&1 || true" }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "$HOME/.local/bin/kbglow stop" }
+          { "type": "command", "command": "$HOME/.local/bin/kbglow stop >/dev/null 2>&1 || true" }
         ]
       }
     ]
