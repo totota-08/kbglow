@@ -66,6 +66,11 @@ kbglow watch            Blink on GUI-app notifications (foreground)
     --app <bundle-id>     App to watch, repeatable
     -t, --timeout <sec>   Max blink per notification (default 120)
 kbglow stop             Stop a running pulse, restore previous state
+kbglow restore-mode [fixed|auto]
+                        What "restore" means when a pulse ends:
+                        fixed = previous brightness + auto setting (default),
+                        auto = hand control back to macOS ambient
+                        auto-brightness. No argument prints the current mode.
 kbglow help             Show usage (also -h / --help)
 kbglow version          Show version (also -v / --version)
 
@@ -78,7 +83,7 @@ kbglow-setup --watch         Install the GUI-app watcher (guided)
 kbglow-setup --watch-remove  Remove the watcher
 ```
 
-`pulse` restores the previous brightness and auto-brightness setting on exit. Only one session runs at a time; starting a new one replaces the old. Any agent that can run a shell command can integrate manually — call `kbglow pulse` and `kbglow stop`.
+`pulse` restores the backlight on exit — by default the previous brightness and auto-brightness setting. If you'd rather have macOS take over again and adjust to the ambient light (instead of pinning the old brightness), run `kbglow restore-mode auto` once; the preference persists in `~/.config/kbglow/restore-mode`. Only one session runs at a time; starting a new one replaces the old. Any agent that can run a shell command can integrate manually — call `kbglow pulse` and `kbglow stop`.
 
 ## Requirements
 
