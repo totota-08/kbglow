@@ -20,9 +20,22 @@ func discoverOrExit() -> KeyboardBacklight {
     }
 }
 
-// Per-uid so two users on one Mac never fight over each other's files.
-private let pidPath = "/tmp/kbglow.\(getuid()).pid"
-private let statePath = "/tmp/kbglow.\(getuid()).state"
+// Per-uid so two users on one Mac never fight over each other's files, and in
+// the per-user temp dir rather than world-writable /tmp, where another local
+// user could pre-create the paths (the sticky bit then makes our writes fail).
+private let runDir: String = {
+    var buf = [CChar](repeating: 0, count: Int(PATH_MAX))
+    let n = confstr(_CS_DARWIN_USER_TEMP_DIR, &buf, buf.count)
+    guard n > 0, n <= buf.count else { return "/tmp" }
+    let dir = String(cString: buf)
+    return dir.hasSuffix("/") ? String(dir.dropLast()) : dir
+}()
+private let pidPath = "\(runDir)/kbglow.\(getuid()).pid"
+private let statePath = "\(runDir)/kbglow.\(getuid()).state"
+// Pre-0.8 versions kept these in /tmp — still checked (and cleaned up) so an
+// upgrade can stop and restore a session started by the old binary.
+private let legacyPidPath = "/tmp/kbglow.\(getuid()).pid"
+private let legacyStatePath = "/tmp/kbglow.\(getuid()).state"
 
 /// A long-running lighting session (pulse). Ensures only one instance
 /// runs at a time, and restores the original backlight state on exit.
@@ -42,12 +55,15 @@ final class Session {
     private var finished = false
 
     init() {
+        // Handlers first: a SIGTERM arriving after the pid file is written
+        // but before the handler is installed would kill the process without
+        // restoring anything (gStop is already polled by the run loops).
+        installStopHandlers()
+
         let bl = discoverOrExit()
         backlight = bl
 
-        Session.killExisting()
-        try? String(ProcessInfo.processInfo.processIdentifier).write(
-            toFile: pidPath, atomically: true, encoding: .utf8)
+        Session.claimPidFile()
 
         if let (b, auto) = Session.readState() {
             // A previous session left its original state behind (it was
@@ -60,31 +76,80 @@ final class Session {
             Session.writeState(brightness: savedBrightness, auto: savedAuto)
         }
         bl.autoBrightness = false
-
-        installStopHandlers()
     }
 
     func finish() {
         guard !finished else { return }
         finished = true
-        backlight.brightness = savedBrightness
-        backlight.autoBrightness = savedAuto
-        try? FileManager.default.removeItem(atPath: statePath)
+        Session.restore(backlight, brightness: savedBrightness, auto: savedAuto)
+        Session.removeStateFiles()
         if let pid = Session.readPid(), pid == ProcessInfo.processInfo.processIdentifier {
             try? FileManager.default.removeItem(atPath: pidPath)
         }
     }
 
-    static func readPid() -> Int32? {
-        guard let s = try? String(contentsOfFile: pidPath, encoding: .utf8) else { return nil }
+    /// End-of-session restore, honoring the configured `RestoreMode`.
+    /// In `auto` mode the saved brightness is deliberately not written back:
+    /// auto-brightness is re-enabled and the ambient sensor picks the level.
+    /// Falls back to the fixed restore when the keyboard lacks the ambient
+    /// feature *or* the enable write fails — otherwise nothing would be
+    /// restored and the backlight would stay on the blink's last frame.
+    static func restore(_ bl: KeyboardBacklight, brightness: Double, auto: Bool) {
+        if RestoreMode.load() == .auto, bl.supportsAutoBrightness,
+           (try? bl.defaultKeyboard.setAutoBrightness(true)) != nil {
+            return
+        }
+        bl.brightness = brightness
+        bl.autoBrightness = auto
+    }
+
+    /// Write our pid file, exclusively. Two sessions starting at the same
+    /// instant can both pass killExisting() before either has written the
+    /// file — read-then-write would leave the loser blinking unsupervised.
+    /// O_CREAT|O_EXCL makes exactly one win; the loser kills the winner on
+    /// its next lap (a new session replaces the old, as documented).
+    private static func claimPidFile() {
+        for _ in 0..<40 {
+            killExisting()
+            let fd = open(pidPath, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+            if fd >= 0 {
+                let pid = "\(ProcessInfo.processInfo.processIdentifier)"
+                _ = pid.withCString { write(fd, $0, strlen($0)) }
+                close(fd)
+                return
+            }
+            usleep(25_000)
+        }
+        FileHandle.standardError.write(Data(
+            "kbglow: could not claim \(pidPath) — another session keeps starting\n".utf8))
+        exit(1)
+    }
+
+    static func readPid() -> Int32? { readPid(at: pidPath) }
+
+    private static func readPid(at path: String) -> Int32? {
+        guard let s = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
         return Int32(s.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     static func readState() -> (brightness: Double, auto: Bool)? {
-        guard let s = try? String(contentsOfFile: statePath, encoding: .utf8) else { return nil }
+        if let state = readState(at: statePath) { return state }
+        guard legacyStatePath != statePath else { return nil }
+        return readState(at: legacyStatePath)
+    }
+
+    private static func readState(at path: String) -> (brightness: Double, auto: Bool)? {
+        guard let s = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
         let parts = s.split(separator: " ")
         guard parts.count == 2, let b = Double(parts[0]) else { return nil }
         return (max(0, min(1, b)), parts[1] == "1")
+    }
+
+    private static func removeStateFiles() {
+        try? FileManager.default.removeItem(atPath: statePath)
+        if legacyStatePath != statePath {
+            try? FileManager.default.removeItem(atPath: legacyStatePath)
+        }
     }
 
     static func writeState(brightness: Double, auto: Bool) {
@@ -104,15 +169,21 @@ final class Session {
 
     /// Ask any running kbglow session to stop (it restores brightness itself).
     static func killExisting() {
-        guard let pid = readPid(), pid != ProcessInfo.processInfo.processIdentifier else { return }
+        killExisting(at: pidPath)
+        if legacyPidPath != pidPath { killExisting(at: legacyPidPath) }
+    }
+
+    private static func killExisting(at path: String) {
+        guard let pid = readPid(at: path),
+              pid != ProcessInfo.processInfo.processIdentifier else { return }
         if isKbglowProcess(pid), kill(pid, SIGTERM) == 0 {
             // Give it a moment to restore state and remove the pid file.
             for _ in 0..<20 where kill(pid, 0) == 0 { usleep(25_000) }
         }
         // Compare-and-delete: a session that started while we were waiting
         // owns the pid file now — deleting it would orphan that session.
-        if readPid() == pid {
-            try? FileManager.default.removeItem(atPath: pidPath)
+        if readPid(at: path) == pid {
+            try? FileManager.default.removeItem(atPath: path)
         }
     }
 
@@ -130,9 +201,8 @@ final class Session {
         if let pid = readPid(), isKbglowProcess(pid) { return } // it will restore itself
         guard let (b, auto) = readState() else { return }
         if let bl = try? KeyboardBacklight.discover() {
-            bl.brightness = b
-            bl.autoBrightness = auto
+            restore(bl, brightness: b, auto: auto)
         }
-        try? FileManager.default.removeItem(atPath: statePath)
+        removeStateFiles()
     }
 }

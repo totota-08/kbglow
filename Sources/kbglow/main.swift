@@ -1,7 +1,7 @@
 import BacklightKit
 import Foundation
 
-let version = "0.7.0"
+let version = "0.8.0"
 
 let usage = """
 kbglow \(version) — your keyboard glows while your AI waits for approval
@@ -15,15 +15,24 @@ USAGE:
                                 (default: 600; 0 = keep blinking until stopped)
       --period <sec>            Cycle length in seconds (default: 1.6)
   kbglow watch [options]      Blink when a GUI AI app (Claude Desktop, ChatGPT)
-                              posts a notification; stop when you focus the app.
+                              posts a notification; stop when you focus the app
+                              or dismiss the notification.
                               Needs Full Disk Access. Runs in the foreground.
       --app <bundle-id>         App to watch (repeatable; default: Claude
                                 Desktop + ChatGPT)
       -t, --timeout <sec>       Max blink duration per notification (default: 120)
   kbglow stop                 Stop a running pulse session, restore state
+  kbglow restore-mode [fixed|auto]
+                              What "restore" means when a session ends:
+                                fixed  put back the previous brightness and
+                                       auto-brightness setting (default)
+                                auto   hand control back to macOS ambient
+                                       auto-brightness (light-sensor mode)
+                              With no argument, prints the current mode.
 
-Pulse restores the previous brightness and auto-brightness setting when it
-exits. Only one session runs at a time (starting a new one replaces the old).
+Pulse restores the backlight when it exits — by default the previous
+brightness and auto-brightness setting; see `kbglow restore-mode`. Only one
+session runs at a time (starting a new one replaces the old).
 """
 
 func parsePercent(_ s: String) -> Double? {
@@ -42,6 +51,17 @@ func optionValue(_ args: inout [String], _ names: [String]) -> String? {
     return nil
 }
 
+/// After option parsing, anything left over is a typo (misspelled option, or
+/// a flag that ate its neighbour as a value) — fail loudly instead of
+/// silently blinking with default settings.
+func rejectExtraArgs(_ args: [String]) {
+    guard !args.isEmpty else { return }
+    FileHandle.standardError.write(Data(
+        "kbglow: unexpected argument(s): \(args.joined(separator: " "))\n\n".utf8))
+    print(usage)
+    exit(1)
+}
+
 var args = Array(CommandLine.arguments.dropFirst())
 guard let command = args.first else {
     print(usage)
@@ -55,35 +75,69 @@ case "set":
         FileHandle.standardError.write(Data("kbglow: set needs a value between 0 and 100\n".utf8))
         exit(1)
     }
+    args.removeFirst()
+    rejectExtraArgs(args)
     discoverOrExit().brightness = value
 
 case "get":
+    rejectExtraArgs(args)
     print(Int((discoverOrExit().brightness * 100).rounded()))
 
 case "on", "off":
+    rejectExtraArgs(args)
     discoverOrExit().brightness = command == "on" ? 1 : 0
 
 case "pulse":
-    // --blink / --min / --max are accepted-and-ignored for compatibility with
-    // hook commands written by older kbglow-setup versions.
     let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 600
     let period = optionValue(&args, ["--period"]).flatMap(Double.init) ?? 1.6
+    // --blink / --min / --max are accepted-and-ignored for compatibility with
+    // hook commands written by older kbglow-setup versions.
+    while optionValue(&args, ["--min", "--max"]) != nil {}
+    args.removeAll { ["--blink", "--min", "--max"].contains($0) }
+    rejectExtraArgs(args)
     Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period))
 
 case "watch":
     var apps: [String] = []
     while let id = optionValue(&args, ["--app"]) { apps.append(id) }
     let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 120
+    rejectExtraArgs(args)
     installStopHandlers()
     Watch.run(bundleIDs: apps, pulseTimeout: timeout)
 
 case "stop":
+    rejectExtraArgs(args)
     Session.stopAndRestore()
 
+case "restore-mode":
+    guard let value = args.first else {
+        print(RestoreMode.load().rawValue)
+        break
+    }
+    guard let mode = RestoreMode(rawValue: value) else {
+        FileHandle.standardError.write(Data("kbglow: restore-mode takes 'fixed' or 'auto'\n".utf8))
+        exit(1)
+    }
+    do {
+        try mode.save()
+    } catch {
+        FileHandle.standardError.write(
+            Data("kbglow: cannot save restore mode: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+    if mode == .auto, let bl = try? KeyboardBacklight.discover(), !bl.supportsAutoBrightness {
+        FileHandle.standardError.write(Data("""
+        kbglow: note: this keyboard reports no ambient auto-brightness support,
+        kbglow: so sessions will fall back to restoring the previous brightness.\n
+        """.utf8))
+    }
+
 case "help", "-h", "--help":
+    rejectExtraArgs(args)
     print(usage)
 
 case "version", "-v", "--version":
+    rejectExtraArgs(args)
     print(version)
 
 default:

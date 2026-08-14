@@ -14,7 +14,7 @@ Zero dependencies, single Swift binary, macOS only.
 npm install -g kbglow
 ```
 
-That's it. The installer detects the AI CLIs on your machine and wires them all up automatically. Your existing settings are preserved (with a backup), and `kbglow-setup --remove` undoes everything.
+That's it. The installer detects the AI CLIs on your machine and wires them all up automatically. Your existing settings are preserved (Claude Code's settings.json additionally gets a `.kbglow-bak` backup), and `kbglow-setup --remove` undoes all hook wiring (plus `--watch-remove` if you installed the watcher).
 
 Optional extras:
 
@@ -51,7 +51,7 @@ Wire hooks up yourself — `examples/claude-code-hooks.json` is a template.
 
 Each CLI is wired through its own official hook/notify mechanism — no polling, no wrappers. Aider, Goose, and Amp aren't wired yet; PRs welcome.
 
-**GUI apps** (Claude Desktop, the ChatGPT app) have no hooks, so `kbglow-setup --watch` installs a background watcher that blinks when they post a notification and stops when you focus the app. It walks you through the one manual step (granting Full Disk Access) and confirms when it works. Two caveats: the blink starts ~5–10s after the notification (macOS writes them lazily), and after updating kbglow the grant must be re-added (it is tied to the binary's signature — the updater reminds you).
+**GUI apps** (Claude Desktop, the ChatGPT app) have no hooks, so `kbglow-setup --watch` installs a background watcher that blinks when they post a notification and stops when you focus the app or dismiss the notification. It walks you through the one manual step (granting Full Disk Access) and confirms when it works. Two caveats: the blink starts ~5–10s after the notification (macOS writes them lazily), and after updating kbglow the grant must be re-added (it is tied to the binary's signature — the updater reminds you).
 
 ## CLI usage
 
@@ -60,22 +60,30 @@ kbglow set <0-100>      Set brightness (percent)
 kbglow get              Print current brightness
 kbglow on / off         Full brightness / off
 kbglow pulse            Blink hard on/off until stopped (the approval alert)
-    -t, --timeout <sec>   Auto-stop after N seconds (default 600)
+    -t, --timeout <sec>   Auto-stop after N seconds (default 600; 0 = blink until stopped)
     --period <sec>        Cycle length (default 1.6)
 kbglow watch            Blink on GUI-app notifications (foreground)
     --app <bundle-id>     App to watch, repeatable
     -t, --timeout <sec>   Max blink per notification (default 120)
 kbglow stop             Stop a running pulse, restore previous state
+kbglow restore-mode [fixed|auto]
+                        What "restore" means when a pulse ends:
+                        fixed = previous brightness + auto setting (default),
+                        auto = hand control back to macOS ambient
+                        auto-brightness. No argument prints the current mode.
+kbglow help             Show usage (also -h / --help)
+kbglow version          Show version (also -v / --version)
 
 kbglow-setup                 (Re)wire every detected AI CLI
 kbglow-setup --remove        Remove every kbglow hook and generated file
+                             (except the watch agent — use --watch-remove)
 kbglow-setup --done          Also blink briefly when a turn completes
 kbglow-setup --done-remove   Approval-only blinking again
 kbglow-setup --watch         Install the GUI-app watcher (guided)
 kbglow-setup --watch-remove  Remove the watcher
 ```
 
-`pulse` restores the previous brightness and auto-brightness setting on exit. Only one session runs at a time; starting a new one replaces the old. Any agent that can run a shell command can integrate manually — call `kbglow pulse` and `kbglow stop`.
+`pulse` restores the backlight on exit — by default the previous brightness and auto-brightness setting. If you'd rather have macOS take over again and adjust to the ambient light (instead of pinning the old brightness), run `kbglow restore-mode auto` once; the preference persists in `~/.config/kbglow/restore-mode`. Only one session runs at a time; starting a new one replaces the old. Any agent that can run a shell command can integrate manually — call `kbglow pulse` and `kbglow stop`.
 
 ## Requirements
 
@@ -91,7 +99,7 @@ Backlight control comes from [BacklightKit](https://github.com/totota-08/Backlig
 
 - `no controllable keyboard backlight found` — this Mac has no controllable backlight (or only an external keyboard)
 - Brightness changes on its own — macOS auto-brightness; kbglow disables it during a pulse and restores it afterwards
-- Watcher not blinking — check `/tmp/kbglow.watch.log`; it usually means Full Disk Access is missing
+- Watcher not blinking — check `/tmp/kbglow.<uid>.watch.log` (e.g. `/tmp/kbglow.501.watch.log`; `kbglow-setup --watch` prints the exact path) — it usually means Full Disk Access is missing
 
 ## License
 

@@ -37,31 +37,67 @@ enum Watch {
             return folded.contains(front.lowercased())
         }
 
-        var blinking = false
+        // The pulse we spawned, while it may still be blinking. Checked
+        // against the live process and its -t timeout: once the pulse exited
+        // or timed out on its own, a later focus/dismiss must not call
+        // stopAndRestore() and kill an unrelated session (e.g. a CLI
+        // approval blink started by a hook).
+        var blinkProc: Process?
+        var blinkStart = Date.distantPast
+        func blinking() -> Bool {
+            guard let p = blinkProc else { return false }
+            if !p.isRunning
+                || (pulseTimeout > 0 && Date().timeIntervalSince(blinkStart) >= pulseTimeout) {
+                blinkProc = nil
+                return false
+            }
+            return true
+        }
+        func stopBlink() {
+            blinkProc = nil
+            Session.stopAndRestore()
+        }
         while gStop == 0 {
             // Pump the runloop (not just sleep) so NSWorkspace state stays fresh.
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
+            // Known hole: SQLite assigns new rows max(rowid)+1, so after the
+            // newest watched record is dismissed the next notification can
+            // REUSE its rec_id. If both happen within one poll interval the
+            // numbers are identical and no rec_id-based scheme (MAX or
+            // tracking the full id set) can tell the difference — that
+            // notification is missed. Accepted: the window is ~1s and the
+            // next notification re-arms the watcher.
             guard let newest = maxRecordID(ids) else { continue }
             if newest < lastSeen {
-                // The DB was cleared or rebuilt and rowids restarted lower;
-                // re-baseline or we would never blink again.
+                // The newest watched notification was dismissed (or the DB was
+                // rebuilt and rowids restarted lower). Re-baseline, and treat a
+                // dismissal as acknowledged — keeping the blink going after the
+                // user explicitly cleared the notification just annoys them.
                 lastSeen = newest
+                if blinking() { stopBlink() }
             }
             if newest > lastSeen {
                 lastSeen = newest
                 // A notification from the app the user is already looking at
                 // needs no blink (and the stop below would race the spawn).
                 if !watchedAppIsFrontmost() {
-                    blinking = true
-                    runSelf(["pulse", "--blink", "--period", "2", "-t", String(pulseTimeout)])
+                    blinkStart = Date()
+                    blinkProc = runSelf(["pulse", "--period", "2", "-t", String(pulseTimeout)])
+                    // The stop paths below signal the pulse via its pid file;
+                    // if the user focuses the app (or dismisses) before the
+                    // newborn pulse has written it, the stop would miss the
+                    // session and it would blink on to its timeout.
+                    if let proc = blinkProc {
+                        for _ in 0..<40 {
+                            if Session.readPid() == proc.processIdentifier { break }
+                            usleep(25_000)
+                        }
+                    }
                 }
             }
-            if blinking, watchedAppIsFrontmost() {
-                blinking = false
-                Session.stopAndRestore()
-            }
+            if blinking(), watchedAppIsFrontmost() { stopBlink() }
         }
-        if blinking { Session.stopAndRestore() }
+        if blinking() { Session.stopAndRestore() }
     }
 
     /// First successful read of the DB. Without Full Disk Access the open
@@ -127,7 +163,9 @@ enum Watch {
         }
         defer { sqlite3_finalize(stmt) }
         for (i, id) in ids.enumerated() {
-            sqlite3_bind_text(stmt, Int32(i + 1), id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            // The DB stores bundle IDs lowercased; fold ours to match (--app
+            // values may carry the app's true mixed casing).
+            sqlite3_bind_text(stmt, Int32(i + 1), id.lowercased(), -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         return sqlite3_column_int64(stmt, 0)
@@ -135,14 +173,16 @@ enum Watch {
 
     /// Spawn this same kbglow binary as a detached pulse session (pulse is a
     /// long-lived process with its own pid-file lifecycle; stop is called
-    /// in-process via Session.stopAndRestore).
-    private static func runSelf(_ args: [String]) {
-        guard let exe = Bundle.main.executablePath else { return }
+    /// in-process via Session.stopAndRestore). Returns the child so the
+    /// caller can track whether that specific pulse is still alive.
+    private static func runSelf(_ args: [String]) -> Process? {
+        guard let exe = Bundle.main.executablePath else { return nil }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)
         p.arguments = args
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
-        try? p.run()
+        do { try p.run() } catch { return nil }
+        return p
     }
 }
