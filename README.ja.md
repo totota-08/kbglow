@@ -66,6 +66,11 @@ kbglow watch            GUIアプリの通知で明滅(フォアグラウンド)
     --app <bundle-id>     監視対象アプリ。複数指定可
     -t, --timeout <秒>    通知1件あたりの最大点滅時間(デフォルト 120)
 kbglow stop             実行中の pulse を止めて元の状態に戻す
+kbglow restore-mode [fixed|auto]
+                        点滅終了後の戻し方を設定:
+                        fixed = 元の明るさと自動調光設定を復元(デフォルト)、
+                        auto = macOS の環境光による自動調光に制御を返す。
+                        引数なしで現在のモードを表示。
 
 kbglow-setup                 検出した AI CLI をまとめて(再)配線
 kbglow-setup --remove        kbglow のフック・生成ファイルを全削除
@@ -75,7 +80,7 @@ kbglow-setup --watch         GUIアプリ用ウォッチャーを設置(ガイ�
 kbglow-setup --watch-remove  ウォッチャーを解除
 ```
 
-`pulse` は終了時に元の明るさと自動調光設定を復元します。同時に動くのは1つだけで、新しく起動すると前のセッションは置き換わります。シェルコマンドを実行できるエージェントなら手動連携も可能 — `kbglow pulse` と `kbglow stop` を呼ぶだけです。
+`pulse` は終了時にバックライトを元に戻します — デフォルトでは元の明るさと自動調光設定を復元します。固定の明るさに戻すのではなく環境光に合わせた自動調光に制御を返したい場合は、一度 `kbglow restore-mode auto` を実行してください(設定は `~/.config/kbglow/restore-mode` に保存されます)。同時に動くのは1つだけで、新しく起動すると前のセッションは置き換わります。シェルコマンドを実行できるエージェントなら手動連携も可能 — `kbglow pulse` と `kbglow stop` を呼ぶだけです。
 
 ## 対応環境
 

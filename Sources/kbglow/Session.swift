@@ -67,11 +67,24 @@ final class Session {
     func finish() {
         guard !finished else { return }
         finished = true
-        backlight.brightness = savedBrightness
-        backlight.autoBrightness = savedAuto
+        Session.restore(backlight, brightness: savedBrightness, auto: savedAuto)
         try? FileManager.default.removeItem(atPath: statePath)
         if let pid = Session.readPid(), pid == ProcessInfo.processInfo.processIdentifier {
             try? FileManager.default.removeItem(atPath: pidPath)
+        }
+    }
+
+    /// End-of-session restore, honoring the configured `RestoreMode`.
+    /// In `auto` mode the saved brightness is deliberately not written back:
+    /// auto-brightness is re-enabled and the ambient sensor picks the level.
+    /// Keyboards without the ambient feature fall back to the fixed restore
+    /// (enabling auto there would be a no-op and leave the blink's last frame).
+    static func restore(_ bl: KeyboardBacklight, brightness: Double, auto: Bool) {
+        if RestoreMode.load() == .auto, bl.supportsAutoBrightness {
+            bl.autoBrightness = true
+        } else {
+            bl.brightness = brightness
+            bl.autoBrightness = auto
         }
     }
 
@@ -130,8 +143,7 @@ final class Session {
         if let pid = readPid(), isKbglowProcess(pid) { return } // it will restore itself
         guard let (b, auto) = readState() else { return }
         if let bl = try? KeyboardBacklight.discover() {
-            bl.brightness = b
-            bl.autoBrightness = auto
+            restore(bl, brightness: b, auto: auto)
         }
         try? FileManager.default.removeItem(atPath: statePath)
     }

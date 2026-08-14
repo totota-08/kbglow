@@ -21,9 +21,17 @@ USAGE:
                                 Desktop + ChatGPT)
       -t, --timeout <sec>       Max blink duration per notification (default: 120)
   kbglow stop                 Stop a running pulse session, restore state
+  kbglow restore-mode [fixed|auto]
+                              What "restore" means when a session ends:
+                                fixed  put back the previous brightness and
+                                       auto-brightness setting (default)
+                                auto   hand control back to macOS ambient
+                                       auto-brightness (light-sensor mode)
+                              With no argument, prints the current mode.
 
-Pulse restores the previous brightness and auto-brightness setting when it
-exits. Only one session runs at a time (starting a new one replaces the old).
+Pulse restores the backlight when it exits — by default the previous
+brightness and auto-brightness setting; see `kbglow restore-mode`. Only one
+session runs at a time (starting a new one replaces the old).
 """
 
 func parsePercent(_ s: String) -> Double? {
@@ -79,6 +87,29 @@ case "watch":
 
 case "stop":
     Session.stopAndRestore()
+
+case "restore-mode":
+    guard let value = args.first else {
+        print(RestoreMode.load().rawValue)
+        break
+    }
+    guard let mode = RestoreMode(rawValue: value) else {
+        FileHandle.standardError.write(Data("kbglow: restore-mode takes 'fixed' or 'auto'\n".utf8))
+        exit(1)
+    }
+    do {
+        try mode.save()
+    } catch {
+        FileHandle.standardError.write(
+            Data("kbglow: cannot save restore mode: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+    if mode == .auto, let bl = try? KeyboardBacklight.discover(), !bl.supportsAutoBrightness {
+        FileHandle.standardError.write(Data("""
+        kbglow: note: this keyboard reports no ambient auto-brightness support,
+        kbglow: so sessions will fall back to restoring the previous brightness.\n
+        """.utf8))
+    }
 
 case "help", "-h", "--help":
     print(usage)
