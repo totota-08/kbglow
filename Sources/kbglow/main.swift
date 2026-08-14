@@ -43,6 +43,17 @@ func optionValue(_ args: inout [String], _ names: [String]) -> String? {
     return nil
 }
 
+/// After option parsing, anything left over is a typo (misspelled option, or
+/// a flag that ate its neighbour as a value) — fail loudly instead of
+/// silently blinking with default settings.
+func rejectExtraArgs(_ args: [String]) {
+    guard !args.isEmpty else { return }
+    FileHandle.standardError.write(Data(
+        "kbglow: unexpected argument(s): \(args.joined(separator: " "))\n\n".utf8))
+    print(usage)
+    exit(1)
+}
+
 var args = Array(CommandLine.arguments.dropFirst())
 guard let command = args.first else {
     print(usage)
@@ -56,35 +67,46 @@ case "set":
         FileHandle.standardError.write(Data("kbglow: set needs a value between 0 and 100\n".utf8))
         exit(1)
     }
+    args.removeFirst()
+    rejectExtraArgs(args)
     discoverOrExit().brightness = value
 
 case "get":
+    rejectExtraArgs(args)
     print(Int((discoverOrExit().brightness * 100).rounded()))
 
 case "on", "off":
+    rejectExtraArgs(args)
     discoverOrExit().brightness = command == "on" ? 1 : 0
 
 case "pulse":
-    // --blink / --min / --max are accepted-and-ignored for compatibility with
-    // hook commands written by older kbglow-setup versions.
     let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 600
     let period = optionValue(&args, ["--period"]).flatMap(Double.init) ?? 1.6
+    // --blink / --min / --max are accepted-and-ignored for compatibility with
+    // hook commands written by older kbglow-setup versions.
+    while optionValue(&args, ["--min", "--max"]) != nil {}
+    args.removeAll { ["--blink", "--min", "--max"].contains($0) }
+    rejectExtraArgs(args)
     Pulse.run(timeout: timeout > 0 ? timeout : nil, period: max(0.2, period))
 
 case "watch":
     var apps: [String] = []
     while let id = optionValue(&args, ["--app"]) { apps.append(id) }
     let timeout = optionValue(&args, ["-t", "--timeout"]).flatMap(Double.init) ?? 120
+    rejectExtraArgs(args)
     installStopHandlers()
     Watch.run(bundleIDs: apps, pulseTimeout: timeout)
 
 case "stop":
+    rejectExtraArgs(args)
     Session.stopAndRestore()
 
 case "help", "-h", "--help":
+    rejectExtraArgs(args)
     print(usage)
 
 case "version", "-v", "--version":
+    rejectExtraArgs(args)
     print(version)
 
 default:
