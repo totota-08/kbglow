@@ -15,7 +15,8 @@ USAGE:
                                 (default: 600; 0 = keep blinking until stopped)
       --period <sec>            Cycle length in seconds (default: 1.6)
   kbglow watch [options]      Blink when a GUI AI app (Claude Desktop, ChatGPT)
-                              posts a notification; stop when you focus the app.
+                              posts a notification; stop when you focus the app
+                              or dismiss the notification.
                               Needs Full Disk Access. Runs in the foreground.
       --app <bundle-id>         App to watch (repeatable; default: Claude
                                 Desktop + ChatGPT)
