@@ -51,7 +51,9 @@ Wire hooks up yourself — `examples/claude-code-hooks.json` is a template.
 
 Each CLI is wired through its own official hook/notify mechanism — no polling, no wrappers. Aider, Goose, and Amp aren't wired yet; PRs welcome.
 
-**GUI apps** (Claude Desktop, the ChatGPT app) have no hooks, so `kbglow-setup --watch` installs a background watcher that blinks when they post a notification and stops when you focus the app or dismiss the notification. It walks you through the one manual step (granting Full Disk Access) and confirms when it works. Two caveats: the blink starts ~5–10s after the notification (macOS writes them lazily), and after updating kbglow the grant must be re-added (it is tied to the binary's signature — the updater reminds you).
+**GUI apps** (Claude Desktop, the ChatGPT app) have no hooks, so `kbglow-setup --watch` installs a background watcher that blinks when they post a notification and stops when you focus the app or dismiss the notification. It walks you through the one manual step (granting Full Disk Access) and confirms when it works. Two caveats: the blink starts ~5–10s after the notification (macOS writes them lazily), and after updating kbglow the grant must be re-added (it is tied to the binary's signature — the updater reminds you). To keep the grant across updates, see the next section.
+
+**Keeping Full Disk Access across updates (optional).** npm builds are ad-hoc signed, so every update looks like a different binary to macOS and the grant is dropped. If a self-signed code-signing certificate named `kbglow-local` exists in your keychain, `kbglow-setup --watch` — and, while the watch agent is installed, every npm update — automatically re-signs the binary with it, so the signature stays stable and the grant survives. Create it once in Keychain Access: **Keychain Access → Certificate Assistant → Create a Certificate…** → Name: `kbglow-local`, Identity Type: *Self-Signed Root*, Certificate Type: *Code Signing*. The first signing may pop a keychain dialog — choose "Always Allow". Then re-run `kbglow-setup --watch` and grant Full Disk Access one last time.
 
 ## CLI usage
 
