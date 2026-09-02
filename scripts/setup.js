@@ -41,6 +41,39 @@ function shq(p) {
 }
 const BIN = shq(binPath);
 
+// npm installs an ad-hoc-signed binary whose signature hash changes every
+// build, so TCC drops the watch agent's Full Disk Access grant on every
+// update. A self-signed "kbglow-local" code-signing certificate (see README)
+// gives the binary a stable identity: re-signing with it keeps the grant.
+const SIGN_IDENTITY = 'kbglow-local';
+
+// 'signed' | 'no-cert' | 'failed'. The failure case (locked keychain, denied
+// prompt) must read differently from "no certificate" — telling the user to
+// create a cert they already have would send them in circles.
+function resignWithStableIdentity() {
+  try {
+    // Timeouts throughout: a modal keychain prompt (key not yet
+    // "Always Allow"-ed) would otherwise hang npm install forever
+    // behind stdio:'ignore'.
+    const ids = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    const line = ids.split('\n').find((l) => l.includes(`"${SIGN_IDENTITY}"`));
+    if (!line) return 'no-cert';
+    // Sign by hash: `-s kbglow-local` matches the CN by substring, so a
+    // second identity like "kbglow-local-old" would fail as ambiguous.
+    const hash = (line.match(/\b[0-9A-F]{40}\b/) || [])[0] || SIGN_IDENTITY;
+    execFileSync('codesign', ['--force', '-s', hash, '-i', 'dev.totota08.kbglow', binPath], {
+      stdio: 'ignore',
+      timeout: 15000,
+    });
+    return 'signed';
+  } catch (e) {
+    return 'failed';
+  }
+}
+
 // The four command strings every integration is built from. (--blink is a
 // compatibility no-op since v0.7 but stays so old and new binaries interop.)
 const APPROVAL_PULSE = `(${BIN} pulse --blink --period 2 -t 600 >/dev/null 2>&1 &) || true`;
@@ -139,14 +172,34 @@ function main() {
   if (backedUp) {
     console.log(`kbglow: previous settings backed up to ${settingsPath}.kbglow-bak`);
   }
-  if (POSTINSTALL && !REMOVE && fs.existsSync(plistPath)) {
-    // The watch agent points at a binary this install just replaced, which
-    // invalidates its signature-bound Full Disk Access grant.
-    console.warn('kbglow: NOTE — the update replaced the kbglow binary, so the watch');
-    console.warn('kbglow: agent lost its Full Disk Access grant. Run "kbglow-setup --watch"');
-    console.warn('kbglow: to re-grant it (guided).');
-  }
   return done;
+}
+
+// After an update replaced the binary, keep the watch agent alive: re-sign
+// with the stable identity when available (the Full Disk Access grant then
+// still matches) and restart the agent onto the new binary. Runs before any
+// Claude Code wiring — a watch-only user has no ~/.claude, and a broken
+// settings.json must not swallow the warning.
+function refreshWatchSigning() {
+  if (!POSTINSTALL || REMOVE || !fs.existsSync(plistPath)) return;
+  const result = resignWithStableIdentity();
+  if (result === 'signed') {
+    launchctl('kickstart', '-k', `gui/${process.getuid()}/${agentLabel}`);
+    console.log(`kbglow: binary re-signed with "${SIGN_IDENTITY}" and watch agent restarted`);
+    console.log('kbglow: (Full Disk Access grant survives this update)');
+    return;
+  }
+  // The watch agent points at a binary this install just replaced, which
+  // invalidates its signature-bound Full Disk Access grant.
+  console.warn('kbglow: NOTE — the update replaced the kbglow binary, so the watch');
+  console.warn('kbglow: agent lost its Full Disk Access grant. Run "kbglow-setup --watch"');
+  if (result === 'failed') {
+    console.warn(`kbglow: to re-grant it (guided). (Re-signing with "${SIGN_IDENTITY}" failed —`);
+    console.warn('kbglow: check the certificate in Keychain Access.)');
+  } else {
+    console.warn('kbglow: to re-grant it (guided). To stop re-granting on every update,');
+    console.warn(`kbglow: create a self-signed "${SIGN_IDENTITY}" certificate (see README).`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +503,19 @@ function guideFullDiskAccess() {
 
 
 function installWatchAgent() {
+  // Sign with the stable identity BEFORE the grant lands, so Full Disk
+  // Access is recorded against a signature that future updates reproduce.
+  const signed = resignWithStableIdentity();
+  if (signed === 'signed') {
+    console.log(`kbglow: binary signed with "${SIGN_IDENTITY}" — the Full Disk Access`);
+    console.log('kbglow: grant below will survive npm updates');
+  } else if (signed === 'failed') {
+    console.log(`kbglow: re-signing with "${SIGN_IDENTITY}" failed — check the certificate in`);
+    console.log('kbglow: Keychain Access (the grant below will not survive updates)');
+  } else {
+    console.log(`kbglow: tip: a self-signed "${SIGN_IDENTITY}" certificate (see README) keeps`);
+    console.log('kbglow: the Full Disk Access grant across npm updates');
+  }
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -498,6 +564,7 @@ try {
   } else if (WATCH_REMOVE) {
     removeWatchAgent();
   } else {
+    refreshWatchSigning();
     let done = false;
     if (POSTINSTALL && !fs.existsSync(settingsDir)) {
       // No ~/.claude — don't conjure a Claude Code config dir for someone
